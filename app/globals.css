@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: #f8fafc;
+}
+
+/* Lets native form controls (date pickers, scrollbars) and the browser's
+   own chrome pick a dark rendering instead of looking like a light-mode
+   control pasted onto a dark page. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] body {
+  background-color: #0f172a; /* slate-950 */
+}
