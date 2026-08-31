@@ -52,8 +52,21 @@ export async function updateSession(request: NextRequest) {
   // every webhook delivery gets redirected to /login before the route
   // handler (which verifies Stripe's own signature) ever runs.
   const isStripeWebhook = path.startsWith("/api/stripe/webhook");
+  // The public marketing page for logged-out visitors — app/page.tsx
+  // itself decides what to show (landing page vs. redirect to
+  // /dashboard) based on whether a session exists, but that logic can
+  // only run if middleware lets an unauthenticated request reach it in
+  // the first place.
+  const isRoot = path === "/";
 
-  if (!user && !isAuthPage && !isAuthCallback && !isPublicAsset && !isStripeWebhook) {
+  if (
+    !user &&
+    !isAuthPage &&
+    !isAuthCallback &&
+    !isPublicAsset &&
+    !isStripeWebhook &&
+    !isRoot
+  ) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     return NextResponse.redirect(redirectUrl);

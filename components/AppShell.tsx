@@ -10,9 +10,11 @@ import { NavLinks } from "./NavLinks";
  */
 export function AppShell({
   companyName,
+  logoUrl,
   children,
 }: {
   companyName?: string | null;
+  logoUrl?: string | null;
   active?: string;
   children: React.ReactNode;
 }) {
@@ -27,6 +29,14 @@ export function AppShell({
             <NavLinks />
           </div>
           <div className="flex items-center gap-4">
+            {logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logoUrl}
+                alt={companyName ? `${companyName} logo` : "Company logo"}
+                className="h-8 w-8 rounded object-contain"
+              />
+            )}
             {companyName && (
               <span className="text-sm text-slate-500 dark:text-slate-400">{companyName}</span>
             )}

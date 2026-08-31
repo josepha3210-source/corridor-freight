@@ -22,14 +22,14 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { companyName, profile } = await requireProfile();
+  const { companyName, logoUrl, profile } = await requireProfile();
 
   if (profile?.role === "driver") {
     redirect("/driver");
   }
 
   return (
-    <AppShell companyName={companyName}>
+    <AppShell companyName={companyName} logoUrl={logoUrl}>
       <ThemeSync
         theme={(profile?.theme_preference as "light" | "dark") ?? "light"}
       />

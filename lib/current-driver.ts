@@ -17,7 +17,7 @@ import { requireProfile } from "./current-profile";
  * loop.
  */
 export const requireDriver = cache(async function requireDriver() {
-  const { supabase, user, profile, companyName } = await requireProfile();
+  const { supabase, user, profile, companyName, logoUrl } = await requireProfile();
 
   if (profile?.role !== "driver") {
     redirect("/dashboard");
@@ -29,5 +29,5 @@ export const requireDriver = cache(async function requireDriver() {
     .eq("user_id", user.id)
     .single();
 
-  return { supabase, user, profile, companyName, driver };
+  return { supabase, user, profile, companyName, logoUrl, driver };
 });

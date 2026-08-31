@@ -8,10 +8,14 @@ export default async function DriverLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { companyName, profile, driver } = await requireDriver();
+  const { companyName, logoUrl, profile, driver } = await requireDriver();
 
   return (
-    <DriverAppShell companyName={companyName} driverName={driver?.full_name}>
+    <DriverAppShell
+      companyName={companyName}
+      logoUrl={logoUrl}
+      driverName={driver?.full_name}
+    >
       <ThemeSync
         theme={(profile?.theme_preference as "light" | "dark") ?? "light"}
       />

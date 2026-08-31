@@ -69,7 +69,7 @@ export async function POST(request: Request) {
 
   const { data: company } = await supabase
     .from("companies")
-    .select("id, stripe_customer_id")
+    .select("id, stripe_customer_id, stripe_subscription_id")
     .eq("id", profile.company_id)
     .single();
 
@@ -98,6 +98,14 @@ export async function POST(request: Request) {
       .eq("id", profile.company_id);
   }
 
+  // 3-day card-required trial (ROADMAP §73) — only on a company's first
+  // real subscription. Without this guard, an already-paying company
+  // changing plans later through this same route would get another 3
+  // free days every time, since Checkout has no memory of whether
+  // they've had a trial before; stripe_subscription_id already being set
+  // is what "not their first time" means here.
+  const isFirstSubscription = !company.stripe_subscription_id;
+
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
@@ -105,6 +113,9 @@ export async function POST(request: Request) {
     success_url: `${origin}/dashboard/settings?billing=success`,
     cancel_url: `${origin}/dashboard/settings?billing=cancelled`,
     metadata: { company_id: profile.company_id, plan_id: plan.id },
+    ...(isFirstSubscription
+      ? { subscription_data: { trial_period_days: 3 } }
+      : {}),
   });
 
   if (!session.url) {

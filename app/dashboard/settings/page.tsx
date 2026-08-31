@@ -4,6 +4,10 @@ import { ProfileForm } from "./ProfileForm";
 import { InviteForm } from "./InviteForm";
 import { CancelInviteButton } from "./CancelInviteButton";
 import { BillingSection } from "./BillingSection";
+import { CompanyLogoUpload } from "./CompanyLogoUpload";
+import { NotificationPreferencesForm } from "./NotificationPreferencesForm";
+import { ChangePasswordForm } from "./ChangePasswordForm";
+import { DangerZone } from "./DangerZone";
 import type { Plan } from "@/lib/billing-format";
 
 type Teammate = { id: string; full_name: string | null; role: string };
@@ -19,7 +23,7 @@ type PendingInvite = { id: string; email: string; role: string };
  * for the invite action itself.
  */
 export default async function SettingsPage() {
-  const { supabase, user, profile } = await requireProfile();
+  const { supabase, user, profile, logoUrl } = await requireProfile();
   const isOwnerOrAdmin = profile?.role === "owner" || profile?.role === "admin";
   // A dispatcher never sees the Team roster/pending-invites list below
   // (that stays owner/admin only, same as before) but can still invite a
@@ -68,6 +72,12 @@ export default async function SettingsPage() {
   let teammates: Teammate[] = [];
   let pendingInvites: PendingInvite[] = [];
 
+  const { data: notificationPrefs } = await supabase
+    .from("profiles")
+    .select("notify_load_delivered, notify_payment_awaiting, notify_new_teammate")
+    .eq("id", user.id)
+    .single();
+
   if (isOwnerOrAdmin) {
     const [{ data: teammateRows }, { data: inviteRows }] = await Promise.all([
       supabase
@@ -93,7 +103,10 @@ export default async function SettingsPage() {
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Company</h2>
         {company &&
           (isOwnerOrAdmin ? (
-            <CompanyForm company={company} />
+            <>
+              <CompanyForm company={company} />
+              <CompanyLogoUpload companyId={company.id} logoUrl={logoUrl} />
+            </>
           ) : (
             <dl className="mt-4 max-w-md space-y-3 text-sm">
               <div>
@@ -196,6 +209,32 @@ export default async function SettingsPage() {
           activeDriverCount={activeDriverCount}
         />
       )}
+
+      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Notifications
+        </h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Email alerts for your own account. Nothing sends these emails
+          yet — these preferences are saved and ready for when that's
+          built.
+        </p>
+        <NotificationPreferencesForm
+          userId={user.id}
+          notifyLoadDelivered={notificationPrefs?.notify_load_delivered ?? true}
+          notifyPaymentAwaiting={notificationPrefs?.notify_payment_awaiting ?? true}
+          notifyNewTeammate={notificationPrefs?.notify_new_teammate ?? true}
+        />
+      </section>
+
+      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Security
+        </h2>
+        <ChangePasswordForm />
+      </section>
+
+      {isOwner && company && <DangerZone companyName={company.name} />}
     </>
   );
 }

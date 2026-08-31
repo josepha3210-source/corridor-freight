@@ -1098,7 +1098,11 @@ remain correctly deferred per §57's priority order — no change to that.
 
 ---
 
-## 72. FLEET PRICE RAISED (§71 correction, before the build ran)
+## 72. FLEET PRICE RAISED (§71 correction, before the build ran) — BUILT AND VERIFIED
+
+(Retroactively marked — §71's Billing-page-expansion and this price
+correction were both actually built and verified in an earlier session;
+this note just closes the documentation gap, no new work happened here.)
 
 Joseph agreed the Fleet tier was underpriced and asked to land it around
 $20-30/truck rather than the flat $380 proposed in §71 — confirmed as a
@@ -1111,3 +1115,240 @@ researched benchmark. Fleet is now: driver_limit 30, $750/mo
 unchanged from §71. This supersedes §71's $380 figure — if the §71
 migration prompt hasn't been run yet, use $750 for fleet directly rather
 than running $380 first and correcting it after.
+
+---
+
+## 73. PUBLIC LANDING PAGE + CODE-BASED SIGNUP VERIFICATION — BUILT (retroactive)
+
+(Also closing a documentation gap — both of these were built and
+verified in earlier sessions; noted here since neither had a ROADMAP
+entry yet.)
+
+**Public landing page** (`app/page.tsx`): logged-out visitors previously
+never saw any marketing content — `lib/supabase/middleware.ts`'s auth
+gate redirected them to `/login` before the page component ever ran.
+Added `/` to that gate's allowlist and built a real landing page (hero,
+feature highlights, a pricing preview linking into signup, footer);
+logged-in users still redirect straight to `/dashboard`, unchanged.
+Pricing preview numbers are static copy, not read live from `plans` —
+that table's RLS only allows `authenticated` reads today.
+
+**Code-based signup verification** (`app/signup/page.tsx`): replaced
+"click the confirmation link" with "enter the code we emailed you",
+using `supabase.auth.verifyOtp({email, token, type: "signup"})` and
+`supabase.auth.resend({type: "signup", email})`. Confirmed against the
+installed `@supabase/auth-js` types that `"signup"` is correct for both.
+Live-tested by generating a real code via Supabase's admin API — it came
+back as **8 digits, not 6**; the UI originally capped the input at
+`maxLength={6}`, which would have silently blocked anyone from entering
+their real code, fixed before shipping. This Supabase project currently
+auto-confirms signups, so this code path doesn't run in practice yet
+until "Confirm email" is enabled in Supabase's Auth settings.
+
+---
+
+## 74. CARD-REQUIRED 3-DAY TRIAL FROM THE PRICING PAGE — BUILT AND VERIFIED
+
+Landing-page pricing cards now link to `/signup?plan=starter` (or
+`growth`/`fleet`) instead of a bare `/signup`. The signup page reads
+`?plan=`, holds it in component state through both the initial form and
+the code-verification step, and — once a real session exists (either
+`signUp()` returned one directly, or `verifyOtp()` just minted one) —
+looks up that plan's id and POSTs it to the existing checkout route,
+redirecting into Stripe Checkout. No `?plan=` (e.g. signing up directly,
+not from a pricing card) leaves a company on the existing free internal
+trial plan exactly as before this change.
+
+**Sequencing (the thing this task specifically asked to explain):**
+account creation and checkout-initiation are two fully independent
+steps, never one atomic operation. The account is completely valid the
+moment `signUp()`/`verifyOtp()` returns a session — everything after
+that (looking up the plan, calling checkout, redirecting to Stripe) is
+best-effort. If the plan lookup fails, the checkout call fails, or the
+user just closes the tab mid-Stripe-Checkout, nothing about the account
+is left half-created: they land as a fully real owner on the free trial
+plan and can upgrade anytime from Settings. There's no intermediate
+"pending checkout" state to get stuck in either direction.
+
+`app/dashboard/settings/billing/checkout/route.ts` now adds
+`subscription_data: { trial_period_days: 3 }` to the Checkout session —
+but **only when the company has no `stripe_subscription_id` yet** (its
+first real subscription). Without that guard, an already-paying company
+changing plans later through this same route would get another 3 free
+days every time, since Checkout itself has no memory of a company having
+already had a trial. This guard wasn't explicitly asked for but is a
+one-line, clearly-correct extension of the literal instruction, flagged
+here rather than silently added.
+
+**Bug fixed**: `app/api/stripe/webhook/route.ts`'s `checkout.session.
+completed` handler hardcoded `subscription_status: "active"`, which is
+simply wrong for a trial checkout — the real status at that moment is
+`"trialing"`. Now calls `stripe.subscriptions.retrieve()` on the real
+subscription id and uses its actual status via the existing
+`mapStripeStatus()`.
+
+**Note**: hit a real API-version mismatch while building Task B (below)
+that also applies here — this Stripe SDK version no longer exposes
+`current_period_end` as a top-level field on `Subscription` (it moved to
+per-subscription-item); nothing in this task's own code needed that
+field, but it's worth knowing before writing more Stripe integration code
+against this SDK version.
+
+Verified: `npx tsc --noEmit` and `npm run build` both clean, build
+confirmed clean with zero `STRIPE_*` env vars set throughout.
+
+---
+
+## 75. CANCEL TRIAL / CANCEL PLAN — BUILT AND VERIFIED
+
+One button on the Billing page, label and behavior driven by
+`subscription_status`, shown only when the company has a real
+`stripe_subscription_id` attached:
+
+- **`"trialing"`** → "Cancel trial" → `stripe.subscriptions.cancel()`
+  (immediate, no charge ever happens) → local `subscription_status` is
+  eagerly set to `"canceled"` right away, since that's a definite,
+  already-true outcome, not a guess.
+- **anything else with a subscription** (`"active"`/`"past_due"`) →
+  "Cancel plan" → `stripe.subscriptions.update(id, {cancel_at_period_end:
+  true})` → local status is **deliberately left untouched** — the
+  subscription is still genuinely active right now, and prematurely
+  marking it canceled would be wrong. The existing
+  `customer.subscription.updated`/`.deleted` webhook handlers (unchanged
+  by this task) are what correctly flip it to `canceled` once the period
+  actually ends — confirmed they still do, since neither handler needed
+  any change for this to keep working.
+
+Owner-only, re-checked server-side in
+`app/dashboard/settings/billing/cancel/route.ts`, same pattern as
+checkout. Hit a real Stripe SDK type error building the "access until"
+date for the scheduled-cancel case — `subscription.current_period_end`
+doesn't exist in this installed Stripe SDK version's types anymore (moved
+to per-item); used `subscription.cancel_at` instead, which is exactly
+the field this API version actually returns for a
+`cancel_at_period_end:true` update.
+
+Verified: `npx tsc --noEmit` and `npm run build` both clean.
+
+---
+
+## 76. SETTINGS PAGE ADDITIONS — BUILT, ONE PART SCOPED DOWN, ONE PART SKIPPED
+
+Four asks, reported on individually — not all delivered at the same
+depth, flagged clearly below rather than silently under- or over-
+building any of them.
+
+**1. Notification preferences — storage built, sending NOT built.**
+Added `notify_load_delivered`/`notify_payment_awaiting`/
+`notify_new_teammate` boolean columns to `profiles` (migration 0012),
+plus a working toggle UI in Settings that saves real values per-profile.
+**What's NOT here**: actually sending an email when any of these three
+events happens. Nothing in this app currently sends a transactional
+email for any event at all — invites/signup confirmation go through
+Supabase's own built-in auth email system, which is a completely
+different mechanism from "notify someone their load was delivered."
+Building real sending would mean integrating an email provider (none
+configured — no API key exists for one, same category of gap as Stripe
+before §70) and hooking into three separate code paths (load status
+update, payment creation, invite acceptance). That's genuinely its own
+phase, not a sub-bullet of a settings toggle — scoped down deliberately
+rather than either building inert-looking toggles silently or expanding
+into a full email-infrastructure project without confirming that's
+wanted first.
+
+**2. Security — password change built, recent logins skipped.**
+`ChangePasswordForm` uses the same `supabase.auth.updateUser({password})`
+call the invite/set-password flow already uses. Recent logins: skipped,
+using the permission this task explicitly gave to skip anything not
+straightforward — Supabase's `auth.sessions` table (where login history
+actually lives) isn't exposed via the client SDK or standard REST at
+all; building this would need a custom `security definer` RPC function
+reading Supabase's internal auth schema, which is meaningfully more
+infrastructure than "a simple recent logins list" implies.
+
+**3. Danger zone — built and fully verified live, including actually
+deleting a real test company end-to-end.** Before building, asked
+directly (not guessed) whether deleting a company should also delete
+every member's login (owner/admin/dispatcher/driver alike), since
+`profiles`/`drivers`/`loads`/`payments`/`invites` all cascade-delete via
+existing foreign keys but the underlying Supabase auth accounts do not —
+left alone, every teammate and driver would keep a login that
+authenticates but has no company, breaking on every page. Confirmed:
+yes, delete those too. `app/dashboard/settings/danger/delete-company/
+route.ts` requires typing the exact company name (checked again
+server-side, not just required by the form), then deletes the company
+row first (cascading everything tenant-scoped), then deletes every
+former member's auth account — that order specifically so a partial
+failure leaves data gone with some orphaned logins to clean up
+separately, rather than logins gone while the data (and no possible
+owner) still exists. One profiles-by-company_id query beforehand is a
+complete list of every human account tied to the company — a driver who
+has ever claimed their invite always has a profiles row too (same
+`handle_new_user()` trigger creates both atomically), so no separate
+drivers-table query was needed. **Live-verified for real**: created a
+disposable test company, ran the actual delete flow through the UI
+(confirmed the button stays disabled on a wrong confirmation string
+first), and confirmed via the admin API afterward that both the company
+row and the owner's auth account were genuinely gone.
+
+**4. Company logo upload — built.** New `company-logos` Supabase Storage
+bucket (public, migration 0012), RLS-scoped so only a company's own
+owner/admin can write into `<company_id>/logo` (`storage.foldername()`
+against `current_company_id()`, same pattern used elsewhere) while
+anyone can read — logos are genuinely public content, matching delivery
+confirmation records a customer might eventually see. `companies.
+logo_updated_at` (nullable) both signals "has a logo" and cache-busts the
+public URL, since every re-upload overwrites the same object path.
+Logo now appears in three places: the dashboard header (`AppShell`), the
+driver portal header (`DriverAppShell`), and the owner-side load detail
+page's delivery confirmation record specifically (the example this task
+named). Owner+admin, matching the Company section it lives in, not
+Billing's stricter owner-only boundary.
+
+**A real regression, caught and fixed before this was called done:**
+`lib/current-profile.ts`'s `requireProfile()` — used by nearly every
+authenticated page — originally had `logo_updated_at` embedded directly
+in its one combined profile+company query. Live-tested immediately after
+building this, since migration 0012 hadn't been run yet: the entire app
+broke. A single missing/invalid column anywhere in one PostgREST select
+fails the *whole* query, so `profile` came back completely null on every
+page, not just wherever the logo was used — `TypeError: Cannot read
+properties of null (reading 'company_id')` on `/dashboard/settings` and,
+by the same mechanism, everywhere else `requireProfile()` runs. Fixed by
+splitting the logo lookup into its own separate, independently-degrading
+query — a failure there now only ever results in `logoUrl: null`, never
+touches `profile` at all. Re-verified live after the fix: the app works
+normally end-to-end with 0012 not yet applied, "No logo" shows correctly
+in Settings, and clicking a notification toggle (also gated on 0012)
+surfaces a clean inline error instead of a crash.
+
+### Migration 0012 — written, not run
+
+Adds the three `profiles.notify_*` columns, `companies.logo_updated_at`,
+the `company-logos` Storage bucket, and its four `storage.objects` RLS
+policies. Confirmed via REST it hasn't been applied yet — the app
+degrades cleanly without it (see above), but needs to run before
+notification toggles or logo upload actually work.
+
+### Verified live (all three tasks together)
+
+`npx tsc --noEmit` and `npm run build` clean throughout, rechecked after
+every fix. Live-tested: landing page → `?plan=` signup flow reads the
+param correctly; Billing page renders the real $85/$125/$750 pricing
+(already applied — migrations 0010 and 0011 have both been run, and 0011
+was run with **real Stripe Price IDs**, not the placeholder strings
+originally written, so a real Stripe account now exists) with correct
+graceful degradation (`STRIPE_SECRET_KEY` still isn't set, so checkout
+still correctly shows "Contact support to upgrade"); Settings page
+end-to-end for an owner (Company/logo/My Profile/Team/Billing/
+Notifications/Security/Danger zone all render and, where 0012 doesn't
+block them, actually work); password change confirmed working;
+**Danger Zone company deletion fully executed and confirmed** — see
+above.
+
+**One thing worth flagging**: a 5th plan row, "Custom / Enterprise" (no
+price, `driver_limit` 9999), now exists in `plans` — not something any
+migration in this project created. Consistent with this whole
+conversation's established practice, treated as a deliberate concurrent
+change (possibly Joseph directly, possibly another session) rather than
+reverted, and it renders correctly on the Billing page as-is.

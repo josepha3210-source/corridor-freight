@@ -8,7 +8,7 @@ export default async function LoadDetailPage({
 }: {
   params: { id: string };
 }) {
-  const { supabase } = await requireProfile();
+  const { supabase, logoUrl } = await requireProfile();
 
   // RLS's "select own company loads" policy means this simply returns no
   // row (not another tenant's data) if the id belongs to a different
@@ -59,6 +59,7 @@ export default async function LoadDetailPage({
           load={load}
           driverName={driverName}
           drivers={drivers ?? []}
+          companyLogoUrl={logoUrl}
         />
       </div>
     </>

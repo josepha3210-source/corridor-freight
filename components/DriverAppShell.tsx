@@ -9,10 +9,12 @@ import Link from "next/link";
  */
 export function DriverAppShell({
   companyName,
+  logoUrl,
   driverName,
   children,
 }: {
   companyName?: string | null;
+  logoUrl?: string | null;
   driverName?: string | null;
   children: React.ReactNode;
 }) {
@@ -20,15 +22,25 @@ export function DriverAppShell({
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4">
-          <div>
-            <div className="text-sm font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-400">
-              {companyName ?? "Corridor Freight"}
-            </div>
-            {driverName && (
-              <div className="text-xs text-slate-500 dark:text-slate-400">
-                {driverName}
-              </div>
+          <div className="flex items-center gap-3">
+            {logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logoUrl}
+                alt={companyName ? `${companyName} logo` : "Company logo"}
+                className="h-8 w-8 rounded object-contain"
+              />
             )}
+            <div>
+              <div className="text-sm font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-400">
+                {companyName ?? "Corridor Freight"}
+              </div>
+              {driverName && (
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {driverName}
+                </div>
+              )}
+            </div>
           </div>
           <form action="/auth/signout" method="post">
             <button

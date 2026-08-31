@@ -58,10 +58,23 @@ export async function POST(request: Request) {
           : session.subscription?.id;
 
       if (companyId) {
+        // Not a hardcoded "active" — a checkout with a trial attached
+        // (§73's 3-day card-required trial) completes with the
+        // subscription still in "trialing", not "active", and writing
+        // "active" here would be simply wrong for that entire signup
+        // funnel. Fetching the real subscription is the only way to
+        // know which one it actually is.
+        let subscriptionStatus: "trialing" | "active" | "past_due" | "canceled" =
+          "active";
+        if (subscriptionId) {
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          subscriptionStatus = mapStripeStatus(subscription.status);
+        }
+
         await admin
           .from("companies")
           .update({
-            subscription_status: "active",
+            subscription_status: subscriptionStatus,
             ...(planId ? { plan_id: planId } : {}),
             ...(subscriptionId ? { stripe_subscription_id: subscriptionId } : {}),
           })

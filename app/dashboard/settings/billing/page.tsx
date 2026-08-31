@@ -4,6 +4,7 @@ import { requireProfile } from "@/lib/current-profile";
 import { isStripeConfigured } from "@/lib/stripe";
 import { STATUS_LABEL, STATUS_CLASSES, type Plan } from "@/lib/billing-format";
 import { PlanCard } from "./PlanCard";
+import { CancelSubscriptionButton } from "./CancelSubscriptionButton";
 
 const PLAN_COLUMNS =
   "id, name, driver_limit, monthly_price_cents, stripe_price_id, description, features";
@@ -25,7 +26,9 @@ export default async function BillingPage() {
   const [{ data: company }, { data: planRows }, { count }] = await Promise.all([
     supabase
       .from("companies")
-      .select(`subscription_status, plans ( ${PLAN_COLUMNS} )`)
+      .select(
+        `subscription_status, stripe_subscription_id, plans ( ${PLAN_COLUMNS} )`
+      )
       .eq("id", profile.company_id)
       .single(),
     supabase.from("plans").select(PLAN_COLUMNS).order("sort_order", { ascending: true }),
@@ -90,6 +93,12 @@ export default async function BillingPage() {
           accurate, but upgrades aren&apos;t available through the app
           until a payment provider is connected.
         </p>
+      )}
+
+      {stripeConfigured && company?.stripe_subscription_id && (
+        <div className="mt-4">
+          <CancelSubscriptionButton subscriptionStatus={subscriptionStatus} />
+        </div>
       )}
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">

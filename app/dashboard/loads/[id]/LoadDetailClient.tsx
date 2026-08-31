@@ -30,10 +30,12 @@ export function LoadDetailClient({
   load,
   driverName,
   drivers,
+  companyLogoUrl,
 }: {
   load: Load;
   driverName: string | null;
   drivers: Driver[];
+  companyLogoUrl?: string | null;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -324,9 +326,19 @@ export function LoadDetailClient({
 
       {isDelivered && (
         <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Delivery confirmation
-          </h3>
+          <div className="flex items-center gap-3">
+            {companyLogoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={companyLogoUrl}
+                alt="Company logo"
+                className="h-8 w-8 rounded object-contain"
+              />
+            )}
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Delivery confirmation
+            </h3>
+          </div>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             Signed by <strong>{load.signed_by_name}</strong> on{" "}
             {formatDate(load.delivered_at)}. Create this driver&apos;s
