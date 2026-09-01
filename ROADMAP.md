@@ -2652,3 +2652,105 @@ count yet, not a bug.
 
 Committed and pushed (`6e56819`); Vercel production deployment
 triggered automatically, confirmed reaching `READY`.
+
+## 93. PHASE 6 — PUBLIC MARKETING SITE — BUILT AND VERIFIED LIVE (INCLUDING A REAL MIDDLEWARE BUG CAUGHT AND FIXED)
+
+Everything up to here was the logged-in app. This is the logged-out
+public site — Solutions mega-menu, real Pricing page, a public IFTA
+Calculator as an actual lead-gen tool, and the SEO fixes the original
+audit flagged as missing.
+
+**Two TODO(joseph) placeholders resolved by asking directly rather than
+guessing**: no support email/phone exists yet (stay on the existing
+`corridor-freight.vercel.app` domain for now, omit a support-contact
+row entirely rather than show one nobody can actually use), and no
+founder photo exists yet (use a JA initials avatar on the navy palette,
+confirmed rather than assumed). Both live in one place —
+`lib/site-config.ts` — specifically so a real domain, email, or photo
+later is a one-line change, not a find-and-replace across every page
+that references it.
+
+**Header** — a real Solutions mega-menu (`components/marketing/
+SolutionsMenu.tsx`): two columns, icon + title + description, matching
+the reference layout's *shape*, populated with Corridor's own seven
+feature areas from Phase 1's sidebar IA (Dispatch & Loads, Driver
+Management, Trucks & Equipment, Invoicing & Accounts, IFTA Reporting,
+Maintenance, Document Management) — not a copy of TruckLogics' list.
+"Request a Demo" links straight to the real Cal.com booking page
+already resolved earlier in this build.
+
+**Footer** — Company (About, Contact) / Product (mirrors the Solutions
+menu exactly, on purpose — the two can never quietly list different
+features) / Support (Contact, IFTA Calculator) columns. No Blog/Case
+Studies links — nothing real exists behind either yet, and a dead link
+is worse than an absent one, same reasoning the prompt itself gives.
+"Contact" (both columns) points at the Cal.com link — a real, working
+channel — rather than a placeholder email address real visitors might
+actually try to send to.
+
+**`/pricing`** — a real dedicated page, tier cards and the feature
+comparison table both built from the live `plans` table (0029 added an
+anon-read policy — the table only ever granted `authenticated` select
+before, since nothing public had ever needed to read it). "Get a
+Quote" for every paid tier instead of a published number — a
+deliberate v2-prompt decision, confirmed scoped to the public site
+only; Settings → Billing still shows real prices to a logged-in owner
+about to actually pay through Stripe Checkout, a transactional context
+that needs the number visible, not a marketing one. Trial says "Free"
+plainly, since it genuinely is. The feature table is generated from
+each plan's own `features` array (no hand-maintained grid that could
+silently drift from what's actually offered) — walked every distinct
+feature line across every plan and checked it against each plan's own
+list.
+
+**`/ifta-calculator`** — a real lead-gen tool, not a static demo. Uses
+the actual IFTA formula (net taxable gallons = miles in a jurisdiction
+÷ fleet-wide average MPG, minus gallons already purchased there; tax
+owed or credited = net taxable gallons × that jurisdiction's rate).
+Per-jurisdiction rates (`lib/ifta-example-rates.ts`) are explicitly
+labeled "example," never "current" — a live search for real Q3 2026
+rates turned up a handful of individually-sourced figures (California,
+Pennsylvania, Illinois) but nothing complete and independently
+verifiable enough for all 58 jurisdictions to present as authoritative,
+the identical accuracy problem hit with the HVUT tax table (§88).
+Every rate is editable in the calculator before computing anything, so
+a visitor who knows their real current rate gets a genuinely accurate
+answer, not this table's guess. Gated behind an email capture
+(`ifta_calculator_leads`, 0030, insert-only from `anon`) — this is what
+makes it "a real marketing lead source" per the prompt's own words, not
+just a free tool with no business value attached.
+
+**SEO** — `metadataBase` + Open Graph/Twitter tags in `app/layout.tsx`,
+real `robots.txt`/`sitemap.xml` via Next.js's own `app/robots.ts`/
+`app/sitemap.ts` conventions rather than hand-rolled route handlers.
+
+### A real bug the verification pass caught
+
+Checked `/pricing` while still logged in first — looked fine, but that
+proved nothing, since an authenticated session already had its own
+route into `plans` via the pre-existing policy. Logged out and
+rechecked: bounced straight to `/login`. Traced it to
+`lib/supabase/middleware.ts` — it only ever named `/` as a public route
+for a logged-out visitor; every other new public page (`/pricing`,
+`/ifta-calculator`, and even `/robots.txt`/`/sitemap.xml` themselves)
+was still being redirected. That last part matters most: a search
+engine crawler never carries a session cookie, so without this fix
+neither SEO file was ever actually reachable by the thing SEO files
+exist for, silently defeating the whole point of adding them. Fixed by
+name-checking these specific routes, the same way `/` already was.
+
+### Verified live, as a genuinely logged-out visitor (logged out first, not just assumed)
+
+`npx tsc --noEmit` and `npm run build` both clean. `/pricing` renders
+real plan data, zero dollar figures on any paid tier. The Solutions
+mega-menu opens with all seven real links. The footer renders every
+column correctly, JA avatar and founder credit both present.
+`/robots.txt` correctly lists the real disallow paths and points at the
+real sitemap URL. The IFTA Calculator's math was checked by hand (two
+jurisdictions, CA and TX, computed to exactly $17.80 total — $21.80
+owed on CA, $4.00 credited on TX) and the captured lead was confirmed
+written to `ifta_calculator_leads` with the exact right numbers, not
+just "the form submitted without erroring."
+
+Committed and pushed (`f5fa6ed`, after `6e56819`'s fleet BI metrics);
+Vercel production deployment confirmed reaching `READY`.
