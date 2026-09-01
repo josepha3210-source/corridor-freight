@@ -22,7 +22,7 @@ export default async function LoadDetailPage({
   const { data: load } = await supabase
     .from("loads_with_dispatch")
     .select(
-      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, truck_id, truck_plate, signed_by_name, signature_data, delivered_at, notes"
+      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, truck_id, truck_plate, signed_by_name, signature_data, delivered_at, notes, tracking_token"
     )
     .eq("id", params.id)
     .single();

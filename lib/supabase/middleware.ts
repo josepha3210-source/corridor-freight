@@ -67,6 +67,11 @@ export async function updateSession(request: NextRequest) {
   // point of adding them.
   const isPublicMarketingPage = path === "/pricing" || path === "/ifta-calculator";
   const isSeoFile = path === "/robots.txt" || path === "/sitemap.xml";
+  // Customer tracking links (Phase 7, v2 prompt update) — a shipper
+  // opening this has no Corridor account at all; the token in the URL
+  // is its own authorization (public_track_dispatch(), 0031), not a
+  // session.
+  const isTrackingLink = path.startsWith("/track/");
 
   if (
     !user &&
@@ -76,7 +81,8 @@ export async function updateSession(request: NextRequest) {
     !isStripeWebhook &&
     !isRoot &&
     !isPublicMarketingPage &&
-    !isSeoFile
+    !isSeoFile &&
+    !isTrackingLink
   ) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";

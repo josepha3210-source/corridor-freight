@@ -35,6 +35,7 @@ type Load = {
   signature_data: string | null;
   delivered_at: string | null;
   notes: string | null;
+  tracking_token: string;
 };
 
 export function LoadDetailClient({
@@ -450,6 +451,17 @@ export function LoadDetailClient({
 
       {tab === "dispatch" && (
         <div className="space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Customer tracking
+            </h3>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              A no-login link the customer can use to check status and
+              ETA, without calling to ask.
+            </p>
+            <CopyTrackingLinkButton token={load.tracking_token} />
+          </div>
+
           {!isTerminal && (
             <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Status</h3>
@@ -551,6 +563,32 @@ function TabButton({
       }`}
     >
       {children}
+    </button>
+  );
+}
+
+function CopyTrackingLinkButton({ token }: { token: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    const url = `${window.location.origin}/track/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can fail (permissions, insecure context) —
+      // fall back to just showing the link so it's still copyable.
+      window.prompt("Copy this link:", url);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="mt-3 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+    >
+      {copied ? "Copied!" : "Copy tracking link"}
     </button>
   );
 }
