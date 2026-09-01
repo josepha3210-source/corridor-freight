@@ -1,12 +1,19 @@
-import { NavLinks } from "./NavLinks";
+"use client";
+
+import { useState } from "react";
+import { Menu } from "lucide-react";
+import { Sidebar } from "./Sidebar";
+import { CorridorLogo } from "./CorridorLogo";
 
 /**
- * Shared header + nav for every authenticated page, now mounted once in
- * app/dashboard/layout.tsx rather than imported by each page individually.
- * `active` is accepted-but-unused — kept optional so it's a no-op for any
- * page still passing it — highlighting is now self-computed from the URL
- * by NavLinks, which is more reliable than prop-drilling the active tab
- * through every route.
+ * Phase 1's IA rebuild — a grouped sidebar (Sidebar.tsx) replaces the
+ * old flat horizontal nav. This is a client component now (it wasn't
+ * before) purely to own the mobile drawer's open/closed state, shared
+ * between the header's hamburger button and the sidebar itself; `children`
+ * — every /dashboard/* page, all server components — still renders fully
+ * server-side despite passing through this client boundary, a
+ * standard, supported Next.js pattern, not something that pushes the
+ * dashboard pages themselves to the client.
  */
 export function AppShell({
   companyName,
@@ -18,15 +25,24 @@ export function AppShell({
   active?: string;
   children: React.ReactNode;
 }) {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-8">
-            <div className="text-sm font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-500">
-              Corridor Freight
-            </div>
-            <NavLinks />
+    <div className="flex min-h-screen bg-slate-50 dark:bg-brand-950">
+      <Sidebar mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 transition-colors dark:border-brand-800 dark:bg-brand-900 sm:px-6 sm:py-4">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation"
+              className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5 sm:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <CorridorLogo />
           </div>
           <div className="flex items-center gap-4">
             {logoUrl && (
@@ -38,7 +54,9 @@ export function AppShell({
               />
             )}
             {companyName && (
-              <span className="text-sm text-slate-500 dark:text-slate-400">{companyName}</span>
+              <span className="hidden text-sm text-slate-500 dark:text-slate-400 sm:inline">
+                {companyName}
+              </span>
             )}
             <form action="/auth/signout" method="post">
               <button
@@ -49,10 +67,12 @@ export function AppShell({
               </button>
             </form>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+        <main className="flex-1 px-4 py-8 sm:px-6 sm:py-10">
+          <div className="mx-auto max-w-5xl">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

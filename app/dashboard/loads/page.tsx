@@ -3,6 +3,7 @@ import { requireProfile } from "@/lib/current-profile";
 import { CreateLoadForm } from "./CreateLoadForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DownloadCsvButton, type LoadCsvRow } from "./DownloadCsvButton";
+import { isGoogleMapsConfigured } from "@/lib/google-maps";
 
 const STATUSES = [
   "unassigned",
@@ -23,10 +24,14 @@ export default async function LoadsPage({
     ? searchParams.status
     : undefined;
 
+  // loads_with_dispatch (0017) — a view joining loads to their dispatch
+  // and stops, reproducing the old flat row shape so this list keeps
+  // working without a bespoke join here. driver_name is a flat column
+  // now, not an embedded drivers(...) relation.
   let loadsQuery = supabase
-    .from("loads")
+    .from("loads_with_dispatch")
     .select(
-      "id, load_number, client_name, pickup_location, dropoff_location, status, client_rate, driver_pay, driver_id, drivers ( full_name )"
+      "id, load_number, client_name, pickup_location, dropoff_location, status, client_rate, driver_pay, driver_id, driver_name"
     )
     .order("created_at", { ascending: false });
 
@@ -34,19 +39,23 @@ export default async function LoadsPage({
     loadsQuery = loadsQuery.eq("status", statusFilter);
   }
 
-  const [{ data: loads }, { data: drivers }] = await Promise.all([
+  const [{ data: loads }, { data: drivers }, { data: customers }] = await Promise.all([
     loadsQuery,
     supabase
       .from("drivers")
       .select("id, full_name")
       .eq("status", "active")
       .order("full_name"),
+    supabase
+      .from("contacts")
+      .select("id, name")
+      .eq("type", "customer")
+      .eq("status", "active")
+      .order("name"),
   ]);
 
   const csvRows: LoadCsvRow[] = (loads ?? []).map((load) => {
-    const driverName =
-      (load.drivers as unknown as { full_name: string } | null)?.full_name ??
-      "Unassigned";
+    const driverName = load.driver_name ?? "Unassigned";
     return {
       load_number: load.load_number,
       client_name: load.client_name,
@@ -76,6 +85,8 @@ export default async function LoadsPage({
             <CreateLoadForm
               companyId={profile.company_id}
               drivers={drivers ?? []}
+              customers={customers ?? []}
+              mileageEnabled={isGoogleMapsConfigured()}
             />
           )}
         </div>
@@ -116,9 +127,7 @@ export default async function LoadsPage({
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loads.map((load) => {
-                  const driverName = (
-                    load.drivers as unknown as { full_name: string } | null
-                  )?.full_name;
+                  const driverName = load.driver_name;
                   const margin =
                     Number(load.client_rate) - Number(load.driver_pay);
                   return (

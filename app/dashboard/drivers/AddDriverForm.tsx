@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { createDriver } from "@/lib/create-driver";
+import { createDriver, isValidDriverName } from "@/lib/create-driver";
 
 /**
  * Inserts directly from the browser client, same pattern as signup/login —
@@ -27,6 +27,12 @@ export function AddDriverForm({ companyId }: { companyId: string }) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!isValidDriverName(fullName)) {
+      setError("Enter a first and last name (at least 2 characters each).");
+      return;
+    }
+
     setLoading(true);
 
     const { error: insertError } = await createDriver(supabase, {
@@ -86,7 +92,7 @@ export function AddDriverForm({ companyId }: { companyId: string }) {
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="(555) 555-0100"
+            placeholder="Phone number"
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           />
         </div>

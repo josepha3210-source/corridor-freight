@@ -3,6 +3,8 @@ import type Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isStripeConfigured, getStripe } from "@/lib/stripe";
 
+type SubscriptionStatus = "trialing" | "active" | "past_due" | "canceled";
+
 /**
  * Stripe calls this directly — no browser session, no cookies, so it has
  * to be excluded from the auth gate in lib/supabase/middleware.ts or
@@ -64,17 +66,23 @@ export async function POST(request: Request) {
         // "active" here would be simply wrong for that entire signup
         // funnel. Fetching the real subscription is the only way to
         // know which one it actually is.
-        let subscriptionStatus: "trialing" | "active" | "past_due" | "canceled" =
-          "active";
+        let subscriptionStatus: SubscriptionStatus = "active";
         if (subscriptionId) {
           const subscription = await stripe.subscriptions.retrieve(subscriptionId);
           subscriptionStatus = mapStripeStatus(subscription.status);
         }
 
+        const pastDueUpdate = await buildPastDueUpdate(
+          admin,
+          companyId,
+          subscriptionStatus
+        );
+
         await admin
           .from("companies")
           .update({
             subscription_status: subscriptionStatus,
+            ...pastDueUpdate,
             ...(planId ? { plan_id: planId } : {}),
             ...(subscriptionId ? { stripe_subscription_id: subscriptionId } : {}),
           })
@@ -89,10 +97,24 @@ export async function POST(request: Request) {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
-      await admin
+      const newStatus = mapStripeStatus(subscription.status);
+
+      // Looked up by stripe_subscription_id, not a company_id from the
+      // payload (this event doesn't carry one) — need the row's own id
+      // to both read its current state and write the update back to it.
+      const { data: company } = await admin
         .from("companies")
-        .update({ subscription_status: mapStripeStatus(subscription.status) })
-        .eq("stripe_subscription_id", subscription.id);
+        .select("id, subscription_status, past_due_since")
+        .eq("stripe_subscription_id", subscription.id)
+        .single();
+
+      if (company) {
+        const pastDueUpdate = pastDueUpdateFrom(company, newStatus);
+        await admin
+          .from("companies")
+          .update({ subscription_status: newStatus, ...pastDueUpdate })
+          .eq("id", company.id);
+      }
       break;
     }
 
@@ -105,9 +127,7 @@ export async function POST(request: Request) {
   return NextResponse.json({ received: true });
 }
 
-function mapStripeStatus(
-  status: Stripe.Subscription.Status
-): "trialing" | "active" | "past_due" | "canceled" {
+function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
     case "trialing":
       return "trialing";
@@ -121,4 +141,45 @@ function mapStripeStatus(
     default:
       return "past_due";
   }
+}
+
+/**
+ * Computes what `past_due_since` should become given a company's
+ * current state and its new status — never overwritten blindly.
+ * Entering `past_due` for the first time stamps "now"; staying
+ * `past_due` across repeated webhook pings leaves the original
+ * timestamp alone (the grace-period clock must not keep resetting);
+ * moving to any other status clears it. This is the one thing that
+ * makes the grace period (lib/past-due.ts,
+ * enforce_payment_write_lock in 0014) mean anything at all — without
+ * it, "how long has this been past_due" has no answer.
+ */
+function pastDueUpdateFrom(
+  current: { subscription_status: string; past_due_since: string | null },
+  newStatus: SubscriptionStatus
+): { past_due_since: string | null } {
+  if (newStatus !== "past_due") {
+    return { past_due_since: null };
+  }
+  if (current.subscription_status === "past_due" && current.past_due_since) {
+    return { past_due_since: current.past_due_since };
+  }
+  return { past_due_since: new Date().toISOString() };
+}
+
+async function buildPastDueUpdate(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  newStatus: SubscriptionStatus
+): Promise<{ past_due_since: string | null }> {
+  const { data: current } = await admin
+    .from("companies")
+    .select("subscription_status, past_due_since")
+    .eq("id", companyId)
+    .single();
+
+  return pastDueUpdateFrom(
+    current ?? { subscription_status: "trialing", past_due_since: null },
+    newStatus
+  );
 }

@@ -5,11 +5,18 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DeliveryConfirmationForm } from "@/components/DeliveryConfirmationForm";
+import { calculateMileage } from "@/lib/create-load";
 
 type Driver = { id: string; full_name: string; status: "active" | "inactive" };
 
 type Load = {
   id: string;
+  // Since Phase 3c (0017), this page reads from the loads_with_dispatch
+  // view: `id` is the load's own id (routing only), `dispatch_id` is
+  // what every write here actually targets — status changes, driver
+  // reassignment, driver pay, and delivery confirmation all live on
+  // `dispatches` now, not `loads`.
+  dispatch_id: string;
   load_number: string;
   client_name: string;
   pickup_location: string;
@@ -19,6 +26,7 @@ type Load = {
   status: string;
   client_rate: number;
   driver_pay: number;
+  miles: number | null;
   driver_id: string | null;
   signed_by_name: string | null;
   signature_data: string | null;
@@ -31,11 +39,13 @@ export function LoadDetailClient({
   driverName,
   drivers,
   companyLogoUrl,
+  mileageEnabled,
 }: {
   load: Load;
   driverName: string | null;
   drivers: Driver[];
   companyLogoUrl?: string | null;
+  mileageEnabled: boolean;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -47,6 +57,11 @@ export function LoadDetailClient({
     (d) => d.status === "active" || d.id === load.driver_id
   );
 
+  // Tabbed detail page (v2 prompt's Phase 3c spec) — booking info
+  // (Overview) and operational execution (Dispatch: status + delivery
+  // proof) are two different jobs now that they're two different
+  // tables, so they get two tabs instead of one long stacked page.
+  const [tab, setTab] = useState<"overview" | "dispatch">("overview");
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   // Split by section rather than one shared `error` — a validation
@@ -65,10 +80,30 @@ export function LoadDetailClient({
   const [dropoffAt, setDropoffAt] = useState(toLocalInput(load.dropoff_at));
   const [clientRate, setClientRate] = useState(String(load.client_rate));
   const [driverPay, setDriverPay] = useState(String(load.driver_pay));
+  const [miles, setMiles] = useState(load.miles != null ? String(load.miles) : "");
+  const [calculatingMiles, setCalculatingMiles] = useState(false);
+  const [mileageNote, setMileageNote] = useState<string | null>(null);
   const [notes, setNotes] = useState(load.notes ?? "");
 
   const liveMargin = (Number(clientRate) || 0) - (Number(driverPay) || 0);
   const savedMargin = Number(load.client_rate) - Number(load.driver_pay);
+
+  async function handleCalculateMileage() {
+    if (!pickupLocation.trim() || !dropoffLocation.trim()) {
+      setMileageNote("Enter both pickup and dropoff locations first.");
+      return;
+    }
+    setCalculatingMiles(true);
+    setMileageNote(null);
+    const result = await calculateMileage(pickupLocation, dropoffLocation);
+    setCalculatingMiles(false);
+    if (!result) {
+      setMileageNote("Couldn't calculate mileage for that route — enter it manually.");
+      return;
+    }
+    setMiles(result.miles.toFixed(1));
+    setMileageNote(`${result.distanceText} via Google Maps.`);
+  }
 
   const isDelivered = load.status === "delivered";
   const isCancelled = load.status === "cancelled";
@@ -84,21 +119,25 @@ export function LoadDetailClient({
     setDropoffAt(toLocalInput(load.dropoff_at));
     setClientRate(String(load.client_rate));
     setDriverPay(String(load.driver_pay));
+    setMiles(load.miles != null ? String(load.miles) : "");
+    setMileageNote(null);
     setNotes(load.notes ?? "");
     setEditError(null);
     setIsEditing(true);
   }
 
-  async function updateLoad(
+  // Status-change buttons target `dispatches` (by dispatch_id) — that's
+  // where status has lived since Phase 3c (0017).
+  async function updateDispatch(
     patch: Record<string, unknown>,
     setErr: (msg: string | null) => void = setStatusError
   ) {
     setErr(null);
     setLoading(true);
     const { error: updateError } = await supabase
-      .from("loads")
+      .from("dispatches")
       .update(patch)
-      .eq("id", load.id);
+      .eq("id", load.dispatch_id);
     setLoading(false);
     if (updateError) {
       setErr(updateError.message);
@@ -116,23 +155,66 @@ export function LoadDetailClient({
     const nextStatus =
       driverId && load.status === "unassigned" ? "assigned" : load.status;
 
-    const ok = await updateLoad(
-      {
+    setEditError(null);
+    setLoading(true);
+
+    // Three tables now (loads / dispatches / load_stops), not one —
+    // done as sequential requests rather than a single RPC, since this
+    // is editing already-existing rows in the caller's own company (not
+    // a creation that needs all-or-nothing atomicity the way
+    // create_load_with_dispatch does). Stops on the first failure and
+    // surfaces it — a partial save here just means retry, not a
+    // security or data-integrity problem.
+    const { error: loadError } = await supabase
+      .from("loads")
+      .update({
         load_number: loadNumber,
         client_name: clientName,
+        client_rate: Number(clientRate) || 0,
+        notes: notes || null,
+      })
+      .eq("id", load.id);
+    if (loadError) {
+      setLoading(false);
+      setEditError(loadError.message);
+      return;
+    }
+
+    const { error: dispatchError } = await supabase
+      .from("dispatches")
+      .update({
         driver_id: driverId || null,
         status: nextStatus,
-        pickup_location: pickupLocation,
-        pickup_at: pickupAt || null,
-        dropoff_location: dropoffLocation,
-        dropoff_at: dropoffAt || null,
-        client_rate: Number(clientRate) || 0,
         driver_pay: Number(driverPay) || 0,
-        notes: notes || null,
-      },
-      setEditError
-    );
-    if (ok) setIsEditing(false);
+        miles: miles ? Number(miles) : null,
+      })
+      .eq("id", load.dispatch_id);
+    if (dispatchError) {
+      setLoading(false);
+      setEditError(dispatchError.message);
+      return;
+    }
+
+    const [{ error: pickupError }, { error: dropoffError }] = await Promise.all([
+      supabase
+        .from("load_stops")
+        .update({ location: pickupLocation, scheduled_at: pickupAt || null })
+        .eq("dispatch_id", load.dispatch_id)
+        .eq("stop_type", "pickup"),
+      supabase
+        .from("load_stops")
+        .update({ location: dropoffLocation, scheduled_at: dropoffAt || null })
+        .eq("dispatch_id", load.dispatch_id)
+        .eq("stop_type", "dropoff"),
+    ]);
+    setLoading(false);
+    if (pickupError || dropoffError) {
+      setEditError((pickupError ?? dropoffError)!.message);
+      return;
+    }
+
+    router.refresh();
+    setIsEditing(false);
   }
 
   if (isEditing) {
@@ -174,6 +256,7 @@ export function LoadDetailClient({
             type="datetime-local"
             value={pickupAt}
             onChange={setPickupAt}
+            required
           />
 
           <EditField
@@ -186,6 +269,7 @@ export function LoadDetailClient({
             type="datetime-local"
             value={dropoffAt}
             onChange={setDropoffAt}
+            required
           />
 
           <EditField
@@ -200,6 +284,35 @@ export function LoadDetailClient({
             value={driverPay}
             onChange={setDriverPay}
           />
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Miles (optional)
+            </label>
+            <div className="mt-1 flex gap-2">
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={miles}
+                onChange={(e) => setMiles(e.target.value)}
+                className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              />
+              {mileageEnabled && (
+                <button
+                  type="button"
+                  onClick={handleCalculateMileage}
+                  disabled={calculatingMiles}
+                  className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  {calculatingMiles ? "Calculating…" : "Calculate"}
+                </button>
+              )}
+            </div>
+            {mileageNote && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{mileageNote}</p>
+            )}
+          </div>
         </div>
 
         <div className="mt-4">
@@ -272,93 +385,144 @@ export function LoadDetailClient({
           </div>
         </div>
 
-        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Detail label="Driver" value={driverName ?? "Unassigned"} />
-          <Detail label="Pickup" value={load.pickup_location} sub={formatDate(load.pickup_at)} />
-          <Detail label="Dropoff" value={load.dropoff_location} sub={formatDate(load.dropoff_at)} />
-          <Detail label="Client rate" value={`$${Number(load.client_rate).toFixed(2)}`} />
-          <Detail label="Driver pay" value={`$${Number(load.driver_pay).toFixed(2)}`} />
-          <Detail label="Company margin" value={`$${savedMargin.toFixed(2)}`} />
-        </dl>
-
-        {load.notes && (
-          <p className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-            {load.notes}
-          </p>
-        )}
       </div>
 
-      {!isTerminal && (
+      {/* Tab bar — Overview is the booking record (customer, rate, pay,
+          margin); Dispatch is the operational side (status, delivery
+          proof) — the same two tables this data actually lives in now. */}
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+        <TabButton active={tab === "overview"} onClick={() => setTab("overview")}>
+          Overview
+        </TabButton>
+        <TabButton active={tab === "dispatch"} onClick={() => setTab("dispatch")}>
+          Dispatch
+        </TabButton>
+      </div>
+
+      {tab === "overview" && (
         <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Status</h3>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {load.status !== "in_transit" && (
-              <button
-                onClick={() => updateLoad({ status: "in_transit" })}
-                disabled={loading}
-                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700 disabled:opacity-60"
-              >
-                Mark in transit
-              </button>
-            )}
-            <button
-              onClick={() => updateLoad({ status: "cancelled" })}
-              disabled={loading}
-              className="rounded-md px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60 dark:text-red-400 dark:hover:bg-red-500/10"
-            >
-              Cancel load
-            </button>
-          </div>
-          {statusError && (
-            <p className="mt-3 text-xs text-red-600 dark:text-red-400">{statusError}</p>
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <Detail label="Driver" value={driverName ?? "Unassigned"} />
+            <Detail label="Pickup" value={load.pickup_location} sub={formatDate(load.pickup_at)} />
+            <Detail label="Dropoff" value={load.dropoff_location} sub={formatDate(load.dropoff_at)} />
+            <Detail label="Client rate" value={`$${Number(load.client_rate).toFixed(2)}`} />
+            <Detail label="Driver pay" value={`$${Number(load.driver_pay).toFixed(2)}`} />
+            <Detail label="Company margin" value={`$${savedMargin.toFixed(2)}`} />
+            <Detail label="Miles" value={load.miles != null ? `${Number(load.miles).toFixed(1)} mi` : "Not set"} />
+          </dl>
+
+          {load.notes && (
+            <p className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+              {load.notes}
+            </p>
           )}
         </div>
       )}
 
-      {!isTerminal && (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Delivery confirmation
-          </h3>
-          <DeliveryConfirmationForm loadId={load.id} driverId={load.driver_id} />
-        </div>
-      )}
+      {tab === "dispatch" && (
+        <div className="space-y-6">
+          {!isTerminal && (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Status</h3>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {load.status !== "in_transit" && (
+                  <button
+                    onClick={() => updateDispatch({ status: "in_transit" })}
+                    disabled={loading}
+                    className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700 disabled:opacity-60"
+                  >
+                    Mark in transit
+                  </button>
+                )}
+                <button
+                  onClick={() => updateDispatch({ status: "cancelled" })}
+                  disabled={loading}
+                  className="rounded-md px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  Cancel load
+                </button>
+              </div>
+              {statusError && (
+                <p className="mt-3 text-xs text-red-600 dark:text-red-400">{statusError}</p>
+              )}
+            </div>
+          )}
 
-      {isDelivered && (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center gap-3">
-            {companyLogoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={companyLogoUrl}
-                alt="Company logo"
-                className="h-8 w-8 rounded object-contain"
-              />
-            )}
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Delivery confirmation
-            </h3>
-          </div>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Signed by <strong>{load.signed_by_name}</strong> on{" "}
-            {formatDate(load.delivered_at)}. Create this driver&apos;s
-            payment from the{" "}
-            <a href="/dashboard/payroll" className="text-brand-700 hover:underline dark:text-brand-400">
-              Payroll
-            </a>{" "}
-            page.
-          </p>
-          {load.signature_data && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={load.signature_data}
-              alt={`Signature of ${load.signed_by_name ?? "recipient"}`}
-              className="mt-4 max-w-xs rounded-md border border-slate-200 bg-white dark:border-slate-700"
-            />
+          {!isTerminal && (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Delivery confirmation
+              </h3>
+              <DeliveryConfirmationForm dispatchId={load.dispatch_id} driverId={load.driver_id} />
+            </div>
+          )}
+
+          {isDelivered && (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center gap-3">
+                {companyLogoUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={companyLogoUrl}
+                    alt="Company logo"
+                    className="h-8 w-8 rounded object-contain"
+                  />
+                )}
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Delivery confirmation
+                </h3>
+              </div>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                Signed by <strong>{load.signed_by_name}</strong> on{" "}
+                {formatDate(load.delivered_at)}. Create this driver&apos;s
+                payment from the{" "}
+                <a href="/dashboard/payroll" className="text-brand-700 hover:underline dark:text-brand-400">
+                  Payroll
+                </a>{" "}
+                page.
+              </p>
+              {load.signature_data && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={load.signature_data}
+                  alt={`Signature of ${load.signed_by_name ?? "recipient"}`}
+                  className="mt-4 max-w-xs rounded-md border border-slate-200 bg-white dark:border-slate-700"
+                />
+              )}
+            </div>
+          )}
+
+          {isCancelled && (
+            <p className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              This load was cancelled.
+            </p>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
+        active
+          ? "border-brand-600 text-brand-700 dark:border-brand-400 dark:text-brand-400"
+          : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -387,11 +551,13 @@ function EditField({
   value,
   onChange,
   type = "text",
+  required,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
+  required?: boolean;
 }) {
   return (
     <div>
@@ -400,6 +566,7 @@ function EditField({
       </label>
       <input
         type={type}
+        required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         step={type === "number" ? "0.01" : undefined}

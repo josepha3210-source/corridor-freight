@@ -14,12 +14,16 @@ import { SignaturePad, type SignaturePadHandle } from "./SignaturePad";
  * This is proof-of-delivery capture, not a legally binding electronic
  * signature service — the copy here says so explicitly and no caller
  * should imply otherwise.
+ *
+ * Targets `dispatches` (by dispatch_id), not `loads`, since Phase 3c
+ * (0017) moved status/delivered_at/signature onto the dispatch — the
+ * booking record (loads) never had a "who signed for it" concept.
  */
 export function DeliveryConfirmationForm({
-  loadId,
+  dispatchId,
   driverId,
 }: {
-  loadId: string;
+  dispatchId: string;
   driverId: string | null;
 }) {
   const router = useRouter();
@@ -51,14 +55,14 @@ export function DeliveryConfirmationForm({
     setLoading(true);
 
     const { error: updateError } = await supabase
-      .from("loads")
+      .from("dispatches")
       .update({
         status: "delivered",
         delivered_at: new Date().toISOString(),
         signed_by_name: signedByName.trim(),
         signature_data: signatureDataUrl,
       })
-      .eq("id", loadId);
+      .eq("id", dispatchId);
 
     setLoading(false);
 
@@ -99,7 +103,7 @@ export function DeliveryConfirmationForm({
             Signature
           </label>
           <div className="mt-1">
-            <SignaturePad ref={signatureRef} />
+            <SignaturePad ref={signatureRef} onDraw={() => setError(null)} />
           </div>
           <button
             type="button"

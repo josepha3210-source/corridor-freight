@@ -25,8 +25,18 @@ export type SignaturePadHandle = {
  * every caller's copy around this component should say so explicitly,
  * this component doesn't say it on its own.
  */
-export const SignaturePad = forwardRef<SignaturePadHandle>(
-  function SignaturePad(_props, ref) {
+type SignaturePadProps = {
+  /**
+   * Fires once, the moment the first stroke lands — not on every
+   * pointermove. Lets a caller clear a stale "capture a signature"
+   * error the instant there's actually a signature, instead of leaving
+   * it on screen until the next full submit attempt re-validates.
+   */
+  onDraw?: () => void;
+};
+
+export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(
+  function SignaturePad({ onDraw }, ref) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const drawing = useRef(false);
     const hasStrokes = useRef(false);
@@ -73,6 +83,11 @@ export const SignaturePad = forwardRef<SignaturePadHandle>(
       ctx.strokeStyle = "#0f172a";
       ctx.lineTo(x, y);
       ctx.stroke();
+      // Fire only on the transition from empty to non-empty — not once
+      // per pointermove for the rest of the stroke.
+      if (!hasStrokes.current) {
+        onDraw?.();
+      }
       hasStrokes.current = true;
       setIsEmpty(false);
     }

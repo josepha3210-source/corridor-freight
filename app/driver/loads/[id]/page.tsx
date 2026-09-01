@@ -19,10 +19,12 @@ export default async function DriverLoadDetailPage({
   const { supabase, driver } = await requireDriver();
   if (!driver) return null;
 
+  // loads_with_dispatch (0017) — dispatch_id is what MarkInTransitButton
+  // and DeliveryConfirmationForm actually write to now.
   const { data: load } = await supabase
-    .from("loads")
+    .from("loads_with_dispatch")
     .select(
-      "id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, driver_id, signed_by_name, signature_data, delivered_at"
+      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, driver_id, signed_by_name, signature_data, delivered_at"
     )
     .eq("id", params.id)
     .single();
@@ -86,7 +88,7 @@ export default async function DriverLoadDetailPage({
 
         {load.status === "assigned" && (
           <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-            <MarkInTransitButton loadId={load.id} />
+            <MarkInTransitButton dispatchId={load.dispatch_id} />
           </div>
         )}
 
@@ -96,7 +98,7 @@ export default async function DriverLoadDetailPage({
               Delivery confirmation
             </h2>
             <div className="mt-2">
-              <DeliveryConfirmationForm loadId={load.id} driverId={load.driver_id} />
+              <DeliveryConfirmationForm dispatchId={load.dispatch_id} driverId={load.driver_id} />
             </div>
           </div>
         )}

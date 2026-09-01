@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { InviteDriverButton } from "./InviteDriverButton";
+import { isValidDriverName } from "@/lib/create-driver";
 
 export type Driver = {
   id: string;
@@ -44,6 +45,12 @@ export function DriverRow({ driver }: { driver: Driver }) {
 
   async function save() {
     setError(null);
+
+    if (!isValidDriverName(fullName)) {
+      setError("Enter a first and last name (at least 2 characters each).");
+      return;
+    }
+
     setLoading(true);
     const { error: updateError } = await supabase
       .from("drivers")
@@ -181,17 +188,17 @@ export function DriverRow({ driver }: { driver: Driver }) {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 divide-x divide-slate-200 dark:divide-slate-700">
             <button
               onClick={startEdit}
-              className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
+              className="rounded px-1 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-50 hover:underline dark:text-brand-400 dark:hover:bg-brand-500/10"
             >
               Edit
             </button>
             {driver.status === "active" ? (
               <button
                 onClick={() => setConfirmingDeactivate(true)}
-                className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                className="rounded px-1 pl-4 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 hover:underline dark:text-red-400 dark:hover:bg-red-500/10"
               >
                 Deactivate
               </button>
@@ -199,7 +206,7 @@ export function DriverRow({ driver }: { driver: Driver }) {
               <button
                 onClick={() => setDriverStatus("active")}
                 disabled={loading}
-                className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-60 dark:text-brand-400"
+                className="rounded px-1 pl-4 text-xs font-medium text-brand-700 transition-colors hover:bg-brand-50 hover:underline disabled:opacity-60 dark:text-brand-400 dark:hover:bg-brand-500/10"
               >
                 {loading ? "Working…" : "Reactivate"}
               </button>

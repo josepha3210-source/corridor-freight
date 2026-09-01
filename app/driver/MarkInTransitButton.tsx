@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * The database is the real guard here (migration 0006's "drivers can
- * advance their own assigned loads" policy only allows landing on
- * in_transit/delivered, and only for a load that's actually theirs) —
- * this button just calls the same update any dispatcher's LoadDetailClient
- * would, RLS does the rest.
+ * The database is the real guard here (0017's "drivers can advance
+ * their own assigned dispatches" policy only allows landing on
+ * in_transit/delivered, and only for a dispatch that's actually
+ * theirs) — this button just calls the same update any dispatcher's
+ * LoadDetailClient would, RLS does the rest. Targets `dispatches`
+ * (by dispatch_id), not `loads` — status has lived there since the
+ * Phase 3c split.
  */
-export function MarkInTransitButton({ loadId }: { loadId: string }) {
+export function MarkInTransitButton({ dispatchId }: { dispatchId: string }) {
   const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
@@ -21,9 +23,9 @@ export function MarkInTransitButton({ loadId }: { loadId: string }) {
     setLoading(true);
     setError(null);
     const { error: updateError } = await supabase
-      .from("loads")
+      .from("dispatches")
       .update({ status: "in_transit" })
-      .eq("id", loadId);
+      .eq("id", dispatchId);
     setLoading(false);
 
     if (updateError) {

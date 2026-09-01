@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { CorridorLogo } from "@/components/CorridorLogo";
 
 /**
  * Public marketing page for logged-out visitors. A logged-in user never
@@ -29,9 +30,7 @@ export default async function Home() {
     <div className="bg-white dark:bg-slate-950">
       <header className="border-b border-slate-200 dark:border-slate-800">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <span className="text-sm font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-500">
-            Corridor Freight
-          </span>
+          <CorridorLogo />
           <nav className="flex items-center gap-4 text-sm font-medium">
             <Link
               href="/login"

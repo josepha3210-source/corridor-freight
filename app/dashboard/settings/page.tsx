@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireProfile } from "@/lib/current-profile";
 import { CompanyForm } from "./CompanyForm";
 import { ProfileForm } from "./ProfileForm";
@@ -7,6 +8,7 @@ import { BillingSection } from "./BillingSection";
 import { CompanyLogoUpload } from "./CompanyLogoUpload";
 import { NotificationPreferencesForm } from "./NotificationPreferencesForm";
 import { ChangePasswordForm } from "./ChangePasswordForm";
+import { TwoFactorSection } from "./TwoFactorSection";
 import { DangerZone } from "./DangerZone";
 import type { Plan } from "@/lib/billing-format";
 
@@ -14,6 +16,19 @@ type Teammate = { id: string; full_name: string | null; role: string };
 type PendingInvite = { id: string; email: string; role: string };
 
 /**
+ * Phase 2's redesign — named sections, each with a one-line description
+ * of what it's for, instead of a flat list of cards. A short anchor-link
+ * strip stands in for the "persistent left sub-nav" the spec suggested —
+ * a second vertical sidebar right next to Phase 1's new main one would
+ * be sidebar-next-to-sidebar clutter, so this is a lighter equivalent:
+ * jump-to-section links, same destination, no second column.
+ *
+ * "My Profile" isn't one of the six named sections the spec lists
+ * (Company/Team/Billing/Notifications/Security/Danger Zone) — kept as
+ * its own section anyway (own display name + theme, no natural home in
+ * the other six) rather than dropping a capability people already rely
+ * on; noted here rather than silently added.
+ *
  * Team is gated here, server-side, not just hidden with CSS: a
  * dispatcher's request never runs the queries below or generates that
  * section's markup, because isOwnerOrAdmin is checked before any of it
@@ -95,12 +110,41 @@ export default async function SettingsPage() {
     pendingInvites = inviteRows ?? [];
   }
 
+  const jumpLinks: Array<{ href: string; label: string }> = [
+    { href: "#company", label: "Company" },
+    { href: "#profile", label: "My Profile" },
+    ...(isOwnerOrAdmin || isDispatcher ? [{ href: "#team", label: "Team" }] : []),
+    ...(isOwner ? [{ href: "#billing", label: "Billing" }] : []),
+    { href: "#notifications", label: "Notifications" },
+    { href: "#security", label: "Security" },
+    ...(isOwner ? [{ href: "#danger", label: "Danger Zone" }] : []),
+  ];
+
   return (
     <>
       <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Settings</h1>
 
-      <section className="mt-8 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <nav className="mt-4 flex flex-wrap gap-2">
+        {jumpLinks.map((link) => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-300 transition-colors hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-800"
+          >
+            {link.label}
+          </Link>
+        ))}
+      </nav>
+
+      <section
+        id="company"
+        className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+      >
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Company</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Your company&apos;s identity and contact details, shown on
+          invoices and driver-facing documents.
+        </p>
         {company &&
           (isOwnerOrAdmin ? (
             <>
@@ -128,8 +172,14 @@ export default async function SettingsPage() {
           ))}
       </section>
 
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <section
+        id="profile"
+        className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+      >
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">My Profile</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Your own name and how Corridor looks for you.
+        </p>
         <ProfileForm
           userId={user.id}
           fullName={profile?.full_name ?? ""}
@@ -140,12 +190,13 @@ export default async function SettingsPage() {
       </section>
 
       {isOwnerOrAdmin && (
-        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+        <section
+          id="team"
+          className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+        >
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Team</h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Dispatchers, admins, and drivers can all be invited from
-            here. Drivers can also be added from the Drivers page
-            without sending an invite right away.
+            Who has access to Corridor, and what they can do.
           </p>
 
           <ul className="mt-4 space-y-1 text-sm">
@@ -188,7 +239,10 @@ export default async function SettingsPage() {
       )}
 
       {isDispatcher && (
-        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+        <section
+          id="team"
+          className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+        >
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             Invite a driver
           </h2>
@@ -203,21 +257,24 @@ export default async function SettingsPage() {
       )}
 
       {isOwner && currentPlan && (
-        <BillingSection
-          currentPlan={currentPlan}
-          subscriptionStatus={company?.subscription_status ?? "trialing"}
-          activeDriverCount={activeDriverCount}
-        />
+        <div id="billing" className="scroll-mt-6">
+          <BillingSection
+            currentPlan={currentPlan}
+            subscriptionStatus={company?.subscription_status ?? "trialing"}
+            activeDriverCount={activeDriverCount}
+          />
+        </div>
       )}
 
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <section
+        id="notifications"
+        className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+      >
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
           Notifications
         </h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Email alerts for your own account. Nothing sends these emails
-          yet — these preferences are saved and ready for when that's
-          built.
+          When Corridor emails you and your team.
         </p>
         <NotificationPreferencesForm
           userId={user.id}
@@ -227,14 +284,37 @@ export default async function SettingsPage() {
         />
       </section>
 
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <section
+        id="security"
+        className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+      >
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
           Security
         </h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          How your account is protected.
+        </p>
+
+        <h3 className="mt-5 text-sm font-semibold text-slate-700 dark:text-slate-300">
+          Password
+        </h3>
         <ChangePasswordForm />
+
+        <h3 className="mt-6 text-sm font-semibold text-slate-700 dark:text-slate-300">
+          Two-factor authentication
+        </h3>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Require a code from an authenticator app in addition to your
+          password when logging in.
+        </p>
+        <TwoFactorSection />
       </section>
 
-      {isOwner && company && <DangerZone companyName={company.name} />}
+      {isOwner && company && (
+        <div id="danger" className="scroll-mt-6">
+          <DangerZone companyName={company.name} />
+        </div>
+      )}
     </>
   );
 }

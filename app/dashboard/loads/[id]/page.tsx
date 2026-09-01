@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireProfile } from "@/lib/current-profile";
+import { isGoogleMapsConfigured } from "@/lib/google-maps";
 import { LoadDetailClient } from "./LoadDetailClient";
 
 export default async function LoadDetailPage({
@@ -10,19 +11,18 @@ export default async function LoadDetailPage({
 }) {
   const { supabase, logoUrl } = await requireProfile();
 
-  // RLS's "select own company loads" policy means this simply returns no
-  // row (not another tenant's data) if the id belongs to a different
-  // company — notFound() below covers both "doesn't exist" and "not
-  // yours" with the same response.
+  // RLS's "select own company loads"/dispatches policies mean this
+  // simply returns no row (not another tenant's data) if the id belongs
+  // to a different company — notFound() below covers both "doesn't
+  // exist" and "not yours" with the same response.
   //
-  // The driver name comes from this embedded join (status-independent),
-  // not from looking the id up in the drivers list below — that list is
-  // filtered for the assign dropdown, and a load assigned to a driver
-  // who's since gone inactive still needs to display their name.
+  // loads_with_dispatch (0017) — dispatch_id is the id every write on
+  // this page (status changes, delivery confirmation) actually targets
+  // now; `id` stays the load's own id, used for routing only.
   const { data: load } = await supabase
-    .from("loads")
+    .from("loads_with_dispatch")
     .select(
-      "id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, driver_id, signed_by_name, signature_data, delivered_at, notes, drivers ( full_name )"
+      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, signed_by_name, signature_data, delivered_at, notes"
     )
     .eq("id", params.id)
     .single();
@@ -31,9 +31,7 @@ export default async function LoadDetailPage({
     notFound();
   }
 
-  const driverName =
-    (load.drivers as unknown as { full_name: string } | null)?.full_name ??
-    null;
+  const driverName = load.driver_name ?? null;
 
   // Every driver, not just active ones — an inactive driver still needs
   // to appear as the selected option if they're the one already assigned
@@ -60,6 +58,7 @@ export default async function LoadDetailPage({
           driverName={driverName}
           drivers={drivers ?? []}
           companyLogoUrl={logoUrl}
+          mileageEnabled={isGoogleMapsConfigured()}
         />
       </div>
     </>

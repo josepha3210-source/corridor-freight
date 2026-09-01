@@ -101,14 +101,25 @@ export default async function BillingPage() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      {/*
+        flex-wrap with a fixed per-card width, not CSS grid — a grid's
+        column tracks are fixed across every row, so a 5th (or any
+        non-multiple-of-the-column-count) card ends up alone in a mostly
+        empty row with a large gap next to it. Flex-wrap just lets a
+        trailing card sit at its natural width instead.
+      */}
+      <div className="mt-6 flex flex-wrap gap-6">
         {plans.map((plan) => (
-          <PlanCard
+          <div
             key={plan.id}
-            plan={plan}
-            isCurrent={plan.id === currentPlan?.id}
-            stripeConfigured={stripeConfigured}
-          />
+            className="w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]"
+          >
+            <PlanCard
+              plan={plan}
+              isCurrent={plan.id === currentPlan?.id}
+              stripeConfigured={stripeConfigured}
+            />
+          </div>
         ))}
       </div>
     </>

@@ -14,6 +14,10 @@
 -- cancel through the app (0002/0003 lock out hard delete at the RLS
 -- level) — there's no undo button for this script itself, so don't run
 -- it twice without meaning to (it'll just add 27 more drivers).
+--
+-- Updated for the Phase 3c split (0017): what used to be one insert
+-- into `loads` is now loads + dispatches + two load_stops rows per
+-- load, same as create_load_with_dispatch() does at runtime.
 
 with target_company as (
   -- Pinned to "tom trucking"'s actual row id rather than matching by name —
@@ -55,19 +59,8 @@ new_drivers as (
   ) as d(name, phone)
   returning id, full_name
 ),
-new_loads as (
-  insert into public.loads (
-    company_id, driver_id, client_name, pickup_location, pickup_at,
-    dropoff_location, dropoff_at, status, client_rate, driver_pay,
-    delivered_at, signed_by_name
-  )
-  select
-    (select id from target_company),
-    (select id from new_drivers where full_name = l.driver_name),
-    l.client_name, l.pickup_location, l.pickup_at, l.dropoff_location,
-    l.dropoff_at, l.status, l.client_rate, l.driver_pay,
-    l.delivered_at, l.signed_by_name
-  from (values
+seed_rows as (
+  select * from (values
     -- overdue pickups: assigned, pickup already in the past
     ('Marcus Webb', 'Midwest Produce Co', 'Chicago, IL', now() - interval '5 hours', 'Indianapolis, IN', now() + interval '3 hours', 'assigned', 1450.00, 950.00, null::timestamptz, null::text),
     ('Sarah Chen', 'Harborline Freight', 'Cleveland, OH', now() - interval '9 hours', 'Columbus, OH', now() + interval '1 hour', 'assigned', 980.00, 620.00, null, null),
@@ -90,11 +83,40 @@ new_loads as (
     -- delivered and already paid (Payroll per-driver statements)
     ('Kevin Osei', 'Riverside Grain', 'Kansas City, MO', now() - interval '6 days', 'St. Louis, MO', now() - interval '5 days', 'delivered', 1080.00, 700.00, now() - interval '5 days', 'J. Park')
   ) as l(driver_name, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, delivered_at, signed_by_name)
-  returning id, client_name, driver_id, driver_pay
+),
+new_loads as (
+  insert into public.loads (company_id, client_name, client_rate)
+  select (select id from target_company), s.client_name, s.client_rate
+  from seed_rows s
+  returning id, client_name
+),
+new_dispatches as (
+  insert into public.dispatches (company_id, load_id, driver_id, status, driver_pay, delivered_at, signed_by_name)
+  select
+    (select id from target_company),
+    nl.id,
+    (select id from new_drivers where full_name = s.driver_name),
+    s.status, s.driver_pay, s.delivered_at, s.signed_by_name
+  from seed_rows s
+  join new_loads nl on nl.client_name = s.client_name
+  returning id, load_id, driver_id, driver_pay
+),
+new_stops as (
+  insert into public.load_stops (company_id, dispatch_id, stop_type, sequence, location, scheduled_at)
+  select (select id from target_company), nd.id, 'pickup', 1, s.pickup_location, s.pickup_at
+  from seed_rows s
+  join new_loads nl on nl.client_name = s.client_name
+  join new_dispatches nd on nd.load_id = nl.id
+  union all
+  select (select id from target_company), nd.id, 'dropoff', 2, s.dropoff_location, s.dropoff_at
+  from seed_rows s
+  join new_loads nl on nl.client_name = s.client_name
+  join new_dispatches nd on nd.load_id = nl.id
 )
 insert into public.payments (company_id, load_id, driver_id, amount, status, paid_at)
 select
   (select id from target_company),
-  id, driver_id, driver_pay, 'paid', now() - interval '4 days'
-from new_loads
-where client_name = 'Riverside Grain';
+  nd.load_id, nd.driver_id, nd.driver_pay, 'paid', now() - interval '4 days'
+from new_dispatches nd
+join new_loads nl on nl.id = nd.load_id
+where nl.client_name = 'Riverside Grain';

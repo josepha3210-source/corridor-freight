@@ -4,6 +4,7 @@ import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { CorridorLogo } from "@/components/CorridorLogo";
 
 const VALID_PLAN_KEYS = ["starter", "growth", "fleet"] as const;
 type PlanKey = (typeof VALID_PLAN_KEYS)[number];
@@ -60,6 +61,21 @@ function SignUpForm() {
   // account creation itself is already fully done by this point (see
   // handleVerify's comment on sequencing).
   const [startingCheckout, setStartingCheckout] = useState(false);
+
+  // Onboarding survey (v2 prompt update) — shown after the account (and
+  // company) are fully real, before checkout/redirect. Skippable, and
+  // never blocks getting into the app: companyId is only fetched to
+  // label the one insert this screen ever makes, not to gate anything.
+  const [showingSurvey, setShowingSurvey] = useState(false);
+  const [surveyCompanyId, setSurveyCompanyId] = useState<string | null>(null);
+  const [fleetSize, setFleetSize] = useState("");
+  const [currentTool, setCurrentTool] = useState("");
+  const [currentToolOther, setCurrentToolOther] = useState("");
+  const [headache, setHeadache] = useState("");
+  const [headacheOther, setHeadacheOther] = useState("");
+  const [referralSource, setReferralSource] = useState("");
+  const [referralOther, setReferralOther] = useState("");
+  const [submittingSurvey, setSubmittingSurvey] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -136,18 +152,47 @@ function SignUpForm() {
    * Runs once a real session exists — either signUp() returned one
    * directly (no confirmation required), or verifyOtp() just minted one.
    * The account and company are fully created and valid the moment this
-   * function starts; everything below is a best-effort next step, never
-   * a required part of account creation. If a plan was picked and
-   * checkout can't be started for any reason (network hiccup, Stripe not
-   * configured, the plan not wired up yet), this falls through to the
-   * dashboard rather than stranding the user on a blank screen or
-   * leaving anything half-created — they land as a fully real owner on
-   * the free trial plan and can upgrade anytime from Settings. Closing
-   * the tab mid-Stripe-Checkout has the same outcome: nothing about the
-   * account depends on checkout completing, so there's no broken
-   * intermediate state to get stuck in either way.
+   * function starts; the survey and checkout below are both best-effort
+   * next steps, never a required part of account creation. companyId is
+   * fetched here purely to label the survey's one insert — nothing
+   * downstream depends on this lookup succeeding; if it fails for any
+   * reason, the survey step just doesn't render (skips straight to
+   * checkout/dashboard) rather than blocking on a screen with nowhere
+   * to actually submit to.
    */
   async function afterAccountReady() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.company_id) {
+        setSurveyCompanyId(profile.company_id);
+        setShowingSurvey(true);
+        return;
+      }
+    }
+
+    await proceedToCheckoutOrDashboard();
+  }
+
+  /**
+   * If a plan was picked and checkout can't be started for any reason
+   * (network hiccup, Stripe not configured, the plan not wired up yet),
+   * this falls through to the dashboard rather than stranding the user
+   * on a blank screen or leaving anything half-created — they land as a
+   * fully real owner on the free trial plan and can upgrade anytime
+   * from Settings. Closing the tab mid-Stripe-Checkout has the same
+   * outcome: nothing about the account depends on checkout completing,
+   * so there's no broken intermediate state to get stuck in either way.
+   */
+  async function proceedToCheckoutOrDashboard() {
     if (planKey) {
       setStartingCheckout(true);
 
@@ -176,6 +221,37 @@ function SignUpForm() {
 
     router.push("/dashboard");
     router.refresh();
+  }
+
+  async function handleSurveySubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!fleetSize || !currentTool || !headache || !referralSource) {
+      return; // required selects — the form's own `required` attrs cover this in practice
+    }
+
+    setSubmittingSurvey(true);
+    if (surveyCompanyId) {
+      // Best-effort: a failed insert here doesn't block getting into the
+      // app — this is product-decision input, not something the account
+      // depends on. No error surfaced to the user for the same reason
+      // the checkout fallback above doesn't show one.
+      await supabase.from("signup_survey_responses").insert({
+        company_id: surveyCompanyId,
+        fleet_size: fleetSize,
+        current_tool: currentTool,
+        current_tool_other: currentTool === "another_tms" ? currentToolOther || null : null,
+        biggest_headache: headache,
+        headache_other: headache === "other" ? headacheOther || null : null,
+        referral_source: referralSource,
+        referral_other: referralSource === "other" ? referralOther || null : null,
+      });
+    }
+    setSubmittingSurvey(false);
+    await proceedToCheckoutOrDashboard();
+  }
+
+  async function handleSkipSurvey() {
+    await proceedToCheckoutOrDashboard();
   }
 
   async function handleResend() {
@@ -265,6 +341,128 @@ function SignUpForm() {
     );
   }
 
+  if (showingSurvey) {
+    return (
+      <AuthShell>
+        <h1 className="text-xl font-semibold text-slate-900">
+          A few quick questions
+        </h1>
+        <p className="mt-1 text-sm text-slate-600">
+          Helps us build the right things next — takes 20 seconds.
+        </p>
+
+        <form onSubmit={handleSurveySubmit} className="mt-6 space-y-5">
+          <SurveyChoice
+            label="How many trucks/drivers do you run?"
+            value={fleetSize}
+            onChange={setFleetSize}
+            options={[
+              { value: "1-2", label: "1–2" },
+              { value: "3-5", label: "3–5" },
+              { value: "6-15", label: "6–15" },
+              { value: "16-30", label: "16–30" },
+              { value: "30+", label: "30+" },
+            ]}
+          />
+
+          <div>
+            <SurveyChoice
+              label="What are you using today to manage dispatch and loads?"
+              value={currentTool}
+              onChange={setCurrentTool}
+              options={[
+                { value: "spreadsheet", label: "A spreadsheet" },
+                { value: "another_tms", label: "Another TMS" },
+                { value: "paper", label: "Paper or a notebook" },
+                { value: "nothing", label: "Nothing yet" },
+              ]}
+            />
+            {currentTool === "another_tms" && (
+              <input
+                value={currentToolOther}
+                onChange={(e) => setCurrentToolOther(e.target.value)}
+                placeholder="Which one?"
+                className="mt-2 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            )}
+          </div>
+
+          <div>
+            <SurveyChoice
+              label="What's your biggest headache right now?"
+              value={headache}
+              onChange={setHeadache}
+              options={[
+                { value: "driver_pay", label: "Getting drivers paid" },
+                { value: "dispatch_organization", label: "Staying organized with dispatch" },
+                { value: "compliance", label: "Compliance (IFTA, 2290, inspections)" },
+                { value: "other", label: "Something else" },
+              ]}
+            />
+            {headache === "other" && (
+              <input
+                value={headacheOther}
+                onChange={(e) => setHeadacheOther(e.target.value)}
+                placeholder="Tell us more"
+                className="mt-2 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            )}
+          </div>
+
+          <div>
+            <SurveyChoice
+              label="How'd you hear about Corridor Freight?"
+              value={referralSource}
+              onChange={setReferralSource}
+              options={[
+                { value: "search", label: "Search" },
+                { value: "referral", label: "Referral" },
+                { value: "social_media", label: "Social media" },
+                { value: "other", label: "Other" },
+              ]}
+            />
+            {referralSource === "other" && (
+              <input
+                value={referralOther}
+                onChange={(e) => setReferralOther(e.target.value)}
+                placeholder="Tell us more"
+                className="mt-2 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={
+              submittingSurvey ||
+              startingCheckout ||
+              !fleetSize ||
+              !currentTool ||
+              !headache ||
+              !referralSource
+            }
+            className="w-full rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-60"
+          >
+            {startingCheckout
+              ? "Setting up your subscription…"
+              : submittingSurvey
+                ? "Saving…"
+                : "Continue"}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          onClick={handleSkipSurvey}
+          disabled={submittingSurvey || startingCheckout}
+          className="mt-4 block w-full text-center text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-60"
+        >
+          Skip for now
+        </button>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell>
       <h1 className="text-xl font-semibold text-slate-900">
@@ -343,8 +541,8 @@ function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="mb-6 text-sm font-semibold uppercase tracking-wide text-brand-600">
-          Corridor Freight
+        <div className="mb-6">
+          <CorridorLogo />
         </div>
         {children}
       </div>
@@ -396,6 +594,41 @@ function Field({
         placeholder={placeholder}
         className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
+    </div>
+  );
+}
+
+/** A row of selectable pills, not a <select> — four options fits comfortably and reads faster to scan than a dropdown for a one-tap survey question. */
+function SurveyChoice({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-slate-700">{label}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+              value === opt.value
+                ? "bg-brand-600 text-white"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

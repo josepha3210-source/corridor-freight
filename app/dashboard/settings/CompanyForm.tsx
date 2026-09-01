@@ -64,7 +64,7 @@ export function CompanyForm({ company }: { company: Company }) {
         <input
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          placeholder="(555) 555-0100"
+          placeholder="Phone number"
           className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         />
       </div>
@@ -76,7 +76,7 @@ export function CompanyForm({ company }: { company: Company }) {
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           rows={2}
-          placeholder="123 Main St, Aurora, CO 80013"
+          placeholder="Street address, city, state, ZIP"
           className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         />
       </div>

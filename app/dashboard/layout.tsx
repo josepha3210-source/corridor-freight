@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ThemeSync } from "@/components/ThemeSync";
 import { TimezoneSync } from "@/components/TimezoneSync";
+import { PastDueBanner } from "@/components/PastDueBanner";
 import { requireProfile } from "@/lib/current-profile";
 
 /**
@@ -22,19 +23,50 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { companyName, logoUrl, profile } = await requireProfile();
+  const { supabase, companyName, logoUrl, profile } = await requireProfile();
 
   if (profile?.role === "driver") {
     redirect("/driver");
   }
 
+  // Deliberately its own isolated query, not folded into requireProfile()
+  // — that shared helper backs nearly every page in this app, and a
+  // single bad/missing column anywhere in one combined query fails the
+  // whole thing (this is exactly how the logo lookup broke every
+  // /dashboard/* page before it was split out the same way — see
+  // lib/current-profile.ts). A failure here should only ever mean "no
+  // banner," never "no profile."
+  //
+  // Owner-only, per the spec this banner implements — an admin or
+  // dispatcher can't act on it anyway (billing is owner-only, §66), so
+  // showing it to them would just be an alarming banner with no button
+  // that does anything for them.
+  let pastDueSince: string | null = null;
+  if (profile?.role === "owner" && profile.company_id) {
+    const { data: billingState } = await supabase
+      .from("companies")
+      .select("subscription_status, past_due_since")
+      .eq("id", profile.company_id)
+      .single();
+
+    if (
+      billingState?.subscription_status === "past_due" &&
+      billingState.past_due_since
+    ) {
+      pastDueSince = billingState.past_due_since;
+    }
+  }
+
   return (
-    <AppShell companyName={companyName} logoUrl={logoUrl}>
-      <ThemeSync
-        theme={(profile?.theme_preference as "light" | "dark") ?? "light"}
-      />
-      <TimezoneSync />
-      {children}
-    </AppShell>
+    <>
+      {pastDueSince && <PastDueBanner pastDueSince={pastDueSince} />}
+      <AppShell companyName={companyName} logoUrl={logoUrl}>
+        <ThemeSync
+          theme={(profile?.theme_preference as "light" | "dark") ?? "light"}
+        />
+        <TimezoneSync />
+        {children}
+      </AppShell>
+    </>
   );
 }
