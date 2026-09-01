@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { createContact } from "@/lib/create-contact";
 import { createLoad, calculateMileage } from "@/lib/create-load";
+import { findPriorDropoffForDriver, locationsMatch } from "@/lib/backhaul";
 
 type Driver = { id: string; full_name: string };
 type Customer = { id: string; name: string };
@@ -82,6 +83,10 @@ export function CreateLoadForm({
     avgRate: number;
     avgRatePerMile: number | null;
   } | null>(null);
+  const [backhaulWarning, setBackhaulWarning] = useState<{
+    priorLocation: string;
+    priorLoadNumber: string;
+  } | null>(null);
 
   const margin = (Number(clientRate) || 0) - (Number(driverPay) || 0);
 
@@ -119,6 +124,28 @@ export function CreateLoadForm({
       avgRate: totalRate / data.length,
       avgRatePerMile: totalMiles > 0 ? rateForMilesSubset / totalMiles : null,
     });
+  }
+
+  // Backhaul awareness (v2 prompt Phase 7) — checked whenever the
+  // driver, pickup location, or pickup time changes, since any of the
+  // three can be filled in first depending on how the dispatcher works
+  // through the form. Uses whichever driverId is passed in directly
+  // rather than always reading state, because the driver <select>'s
+  // onChange fires this before setDriverId's update has committed.
+  async function checkBackhaul(driverIdToCheck?: string) {
+    const id = driverIdToCheck ?? driverId;
+    if (!id) {
+      setBackhaulWarning(null);
+      return;
+    }
+    const prior = await findPriorDropoffForDriver(supabase, id, {
+      beforeIso: pickupAt || null,
+    });
+    if (!prior || !pickupLocation.trim() || locationsMatch(prior.location, pickupLocation)) {
+      setBackhaulWarning(null);
+      return;
+    }
+    setBackhaulWarning({ priorLocation: prior.location, priorLoadNumber: prior.loadNumber });
   }
 
   async function handleCalculateMileage() {
@@ -206,6 +233,7 @@ export function CreateLoadForm({
     setMiles("");
     setMileageNote(null);
     setLaneHistory(null);
+    setBackhaulWarning(null);
     setOpen(false);
     router.refresh();
   }
@@ -262,7 +290,10 @@ export function CreateLoadForm({
           </label>
           <select
             value={driverId}
-            onChange={(e) => setDriverId(e.target.value)}
+            onChange={(e) => {
+              setDriverId(e.target.value);
+              checkBackhaul(e.target.value);
+            }}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           >
             <option value="">Unassigned</option>
@@ -272,6 +303,14 @@ export function CreateLoadForm({
               </option>
             ))}
           </select>
+          {backhaulWarning && (
+            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+              ⚠ This driver&apos;s last dropoff was{" "}
+              <span className="font-medium">{backhaulWarning.priorLocation}</span>{" "}
+              ({backhaulWarning.priorLoadNumber}) — different from this load&apos;s
+              pickup. May require an empty deadhead move.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -295,7 +334,10 @@ export function CreateLoadForm({
           label="Pickup location"
           value={pickupLocation}
           onChange={setPickupLocation}
-          onBlur={checkLaneHistory}
+          onBlur={() => {
+            checkLaneHistory();
+            checkBackhaul();
+          }}
           placeholder="Joliet, IL"
           required
         />
@@ -304,6 +346,7 @@ export function CreateLoadForm({
           type="datetime-local"
           value={pickupAt}
           onChange={setPickupAt}
+          onBlur={() => checkBackhaul()}
           required
         />
 

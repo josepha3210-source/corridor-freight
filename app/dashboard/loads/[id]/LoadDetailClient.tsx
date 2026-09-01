@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DeliveryConfirmationForm } from "@/components/DeliveryConfirmationForm";
 import { calculateMileage } from "@/lib/create-load";
+import { findPriorDropoffForDriver, locationsMatch } from "@/lib/backhaul";
 
 type Driver = { id: string; full_name: string; status: "active" | "inactive" };
 type Truck = { id: string; plate_number: string | null; status: "active" | "maintenance" | "inactive" };
@@ -94,9 +95,35 @@ export function LoadDetailClient({
   const [calculatingMiles, setCalculatingMiles] = useState(false);
   const [mileageNote, setMileageNote] = useState<string | null>(null);
   const [notes, setNotes] = useState(load.notes ?? "");
+  const [backhaulWarning, setBackhaulWarning] = useState<{
+    priorLocation: string;
+    priorLoadNumber: string;
+  } | null>(null);
 
   const liveMargin = (Number(clientRate) || 0) - (Number(driverPay) || 0);
   const savedMargin = Number(load.client_rate) - Number(load.driver_pay);
+
+  // Backhaul awareness (v2 prompt Phase 7) — same check as the New Load
+  // form (lib/backhaul.ts), run whenever the driver, pickup location,
+  // or pickup time changes while reassigning this load. Excludes this
+  // load's own dispatch so reassigning a driver back to their own
+  // current load never flags itself.
+  async function checkBackhaul(driverIdToCheck?: string) {
+    const id = driverIdToCheck ?? driverId;
+    if (!id) {
+      setBackhaulWarning(null);
+      return;
+    }
+    const prior = await findPriorDropoffForDriver(supabase, id, {
+      excludeDispatchId: load.dispatch_id,
+      beforeIso: pickupAt || null,
+    });
+    if (!prior || !pickupLocation.trim() || locationsMatch(prior.location, pickupLocation)) {
+      setBackhaulWarning(null);
+      return;
+    }
+    setBackhaulWarning({ priorLocation: prior.location, priorLoadNumber: prior.loadNumber });
+  }
 
   async function handleCalculateMileage() {
     if (!pickupLocation.trim() || !dropoffLocation.trim()) {
@@ -133,6 +160,7 @@ export function LoadDetailClient({
     setMiles(load.miles != null ? String(load.miles) : "");
     setMileageNote(null);
     setNotes(load.notes ?? "");
+    setBackhaulWarning(null);
     setEditError(null);
     setIsEditing(true);
   }
@@ -244,7 +272,10 @@ export function LoadDetailClient({
             </label>
             <select
               value={driverId}
-              onChange={(e) => setDriverId(e.target.value)}
+              onChange={(e) => {
+                setDriverId(e.target.value);
+                checkBackhaul(e.target.value);
+              }}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             >
               <option value="">Unassigned</option>
@@ -255,6 +286,14 @@ export function LoadDetailClient({
                 </option>
               ))}
             </select>
+            {backhaulWarning && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                ⚠ This driver&apos;s last dropoff was{" "}
+                <span className="font-medium">{backhaulWarning.priorLocation}</span>{" "}
+                ({backhaulWarning.priorLoadNumber}) — different from this load&apos;s
+                pickup. May require an empty deadhead move.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -279,12 +318,14 @@ export function LoadDetailClient({
             label="Pickup location"
             value={pickupLocation}
             onChange={setPickupLocation}
+            onBlur={() => checkBackhaul()}
           />
           <EditField
             label="Pickup time"
             type="datetime-local"
             value={pickupAt}
             onChange={setPickupAt}
+            onBlur={() => checkBackhaul()}
             required
           />
 
@@ -617,12 +658,14 @@ function EditField({
   label,
   value,
   onChange,
+  onBlur,
   type = "text",
   required,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   type?: string;
   required?: boolean;
 }) {
@@ -636,6 +679,7 @@ function EditField({
         required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         step={type === "number" ? "0.01" : undefined}
         min={type === "number" ? "0" : undefined}
         className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
