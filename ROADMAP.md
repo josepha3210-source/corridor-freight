@@ -2754,3 +2754,67 @@ just "the form submitted without erroring."
 
 Committed and pushed (`f5fa6ed`, after `6e56819`'s fleet BI metrics);
 Vercel production deployment confirmed reaching `READY`.
+
+## 94. PHASE 7 — CUSTOMER-FACING TRACKING — BUILT AND VERIFIED LIVE
+
+The v2 prompt's own research calls this "the single most-cited feature
+across modern dispatch platforms" — a no-login link a shipper can open
+to check status and an ETA instead of calling to ask. Built without any
+real GPS/telematics hardware, exactly as the prompt itself framed as
+possible.
+
+**`dispatches.tracking_token` (0031)** — a real, unguessable secret,
+deliberately a second random value rather than reusing `dispatches.id`
+itself (which already appears throughout the app in ways that could
+leak — a browser history entry, a support screenshot). Knowing the
+token *is* the authorization for this one read. That's why this isn't
+a broad `anon` select policy on `dispatches` (which would let anyone
+enumerate every dispatch in the database by guessing IDs) — instead
+`public_track_dispatch()` is a `SECURITY DEFINER` function that looks
+up exactly one row by its token and returns only operational fields
+(status, pickup/dropoff, delivered timestamp). No client rate, no
+driver pay, no driver's name — a shipper tracking their own freight has
+no legitimate reason to see what the carrier pays its driver, and the
+function's return type simply doesn't include those columns at all,
+not just "the UI doesn't show them."
+
+ETA is the dispatch's own scheduled dropoff time — not a live GPS
+estimate this app has no way to produce. Once real mileage/route data
+exists more broadly this could get smarter, but showing today's
+scheduled time honestly beats fabricating a "live" one.
+
+"Copy tracking link" lives on the load detail page's Dispatch tab,
+next to Status and Delivery confirmation — the same operational tab,
+since a tracking link is exactly that: an operational, not a booking,
+concern.
+
+### Verified live, as a genuinely anonymous visitor
+
+`npx tsc --noEmit` and `npm run build` both clean (one unrelated hiccup
+along the way: `npm run build` clobbered the live dev server's `.next`
+directory again — the same long-documented gotcha, fixed the same way,
+by killing the dev server first). Pulled the real tracking token for
+the load created and delivered in §90's verification pass directly
+from the database, logged all the way out, and loaded `/track/<token>`
+as a genuinely unauthenticated visitor: correct status stepper
+(Delivered highlighted), correct pickup/dropoff locations and times,
+correct delivered timestamp — matching §90's own delivery exactly. An
+invalid/random token 404s cleanly rather than leaking anything or
+crashing. One console error appeared on first check and was traced to
+the same stale-console-across-navigations false alarm already
+documented in §86 — confirmed clean in a completely fresh tab before
+trusting the result.
+
+Committed and pushed (`1d6d2db`); Vercel production deployment
+triggered, confirmed reaching `READY`.
+
+---
+
+This is a natural stopping point after an extremely large amount of
+ground covered in one continuous push: migrations `0012`–`0032` (21
+total) all applied live and verified against the real database, the
+entire codebase committed to git and deployed to production for the
+first time all session, real fleet BI metrics, and two of Phase 7's
+five differentiators (customer tracking is done; lane profitability/
+rate history, backhaul awareness, driver scorecards, and POD-triggered
+invoicing remain). Continuing autonomously into those next.
