@@ -2890,3 +2890,75 @@ Committed (`0ca5f09`); pushed; Vercel production deployment triggered.
 
 Backhaul awareness, driver scorecards, and POD-triggered invoicing are
 still open. Continuing autonomously into those next.
+
+---
+
+## 96. PHASE 7 — BACKHAUL AWARENESS — BUILT AND VERIFIED LIVE
+
+Warns a dispatcher, at the moment they assign a driver to a load, when
+that driver's most recent dropoff isn't where this load actually picks
+up — the empty ("deadhead") move between the two is a real cost that's
+easy to miss when you're just picking a name off a driver dropdown.
+
+**`lib/backhaul.ts`** — `findPriorDropoffForDriver()` finds the
+driver's most relevant prior dispatch relative to the new load: the
+one whose dropoff is scheduled latest but still at-or-before this
+load's own pickup time (their real last stop before this one, in
+schedule order), falling back to their single most recent dropoff
+overall when this load has no pickup time yet, or none of the
+driver's other dispatches drop off before it. `locationsMatch()` reuses
+the same case/whitespace-insensitive exact-string comparison as the
+lane-profitability grouping (§95) and lane-history hint, so "is this
+the same place" answers consistently everywhere.
+
+**Deliberately a location-mismatch check, not a distance calculation.**
+The v2 prompt's own framing ("long deadhead run") implies a mileage
+number, but computing real miles between two free-text locations needs
+a geocoding/routing call — `lib/google-maps.ts`'s Distance Matrix
+integration, gated behind `GOOGLE_MAPS_API_KEY`, which isn't
+configured in this environment (confirmed — not in `.env.local`). Per
+the same tiered-honesty pattern as the IFTA calculator (§93) and HVUT
+stub: build the real structure now, degrade openly instead of
+fabricating a number. So the warning names both locations and the
+specific prior load, and lets the dispatcher judge the distance
+themselves, rather than inventing a mileage figure the app can't
+actually back up. Wiring in a real mileage figure later (once a Maps
+key exists) is a small, additive change to this same function — call
+`getDrivingDistance()` when `isGoogleMapsConfigured()` is true, keep
+the location-only fallback otherwise.
+
+**Wired into both places a driver actually gets assigned:**
+- `CreateLoadForm.tsx` — checked on the Driver select's `onChange`
+  (passing the new value directly rather than reading state, since
+  `setDriverId` hasn't committed yet at that point) and on Pickup
+  location/Pickup time blur — covers whichever field a dispatcher
+  fills in first.
+- `LoadDetailClient.tsx`'s edit mode — same, for reassigning a driver
+  on an existing load, explicitly excluding the load's own dispatch so
+  reassigning a driver back to their own current load never flags
+  itself.
+
+### Verified live
+
+Logged in as the real owner test account. Opened "+ New load," selected
+Dana Ruiz (whose most recent dropoff is Milwaukee, WI, from L-0004 —
+the same load used to verify §95) and entered a pickup of Denver, CO —
+the warning correctly read "This driver's last dropoff was Milwaukee,
+WI (L-0004) — different from this load's pickup. May require an empty
+deadhead move," correctly picking Milwaukee (the later, more recent
+dropoff) over Dana's older Colorado Springs, CO dropoff on L-0003, since
+no pickup time was set (falls back to most recent overall). Changed the
+pickup location to Milwaukee, WI and confirmed the warning correctly
+disappeared once the locations matched. Cancelled the form without
+submitting.
+
+`npx tsc --noEmit` and `npm run build` both clean (dev server killed
+first, same long-documented `.next`-clobbering gotcha pre-empted this
+time rather than hit).
+
+Committed (`38eddf2`); pushed; Vercel production deployment triggered.
+
+### Remaining Phase 7 differentiators
+
+Driver scorecards and POD-triggered invoicing are still open.
+Continuing autonomously into those next.
