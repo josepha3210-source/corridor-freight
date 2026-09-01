@@ -1,0 +1,51 @@
+-- Corridor Freight — CRITICAL FIX: loads_with_dispatch was bypassing
+-- RLS entirely, leaking every company's load/dispatch data to every
+-- authenticated user of every other company.
+--
+-- Root cause: a plain Postgres view (no `security_invoker`) executes
+-- against its underlying tables as the VIEW'S OWNER, not as the
+-- calling role. `loads_with_dispatch` is owned by `postgres`, which
+-- also owns the `loads`/`dispatches`/`load_stops` tables and — like
+-- any table owner without `FORCE ROW LEVEL SECURITY` — bypasses RLS
+-- on them entirely. Every RLS policy on those three tables is
+-- correctly written and correctly scoped by company_id (verified
+-- directly against pg_policies), so querying the base tables
+-- themselves was always safe. Querying the VIEW was not: it silently
+-- returned every company's rows to anyone, regardless of role or
+-- company, because Postgres never even evaluated those policies for
+-- a view-owner-privileged query.
+--
+-- Caught live, by accident, while building POD-triggered invoicing:
+-- create_invoice_with_line_items() (0018, correctly NOT security
+-- definer) tried to insert a line item for a load that turned out to
+-- belong to a different company than the caller's — RLS on the base
+-- `loads` table correctly returned zero rows inside that function
+-- (so no cross-tenant line item was ever actually written), but the
+-- fact that the load's OWN detail page had rendered fully in the
+-- first place, for a user with no real access to it, is what exposed
+-- the underlying leak. Confirmed and scoped by directly emulating the
+-- session (`set local role authenticated; set local
+-- request.jwt.claims = ...`) for a real test user and comparing:
+-- `select count(*) from loads` (RLS-scoped, correct) returned 4;
+-- `select count(*) from loads_with_dispatch` (the view, no filter)
+-- returned 34 — every load across every company in the database.
+-- `loads_with_dispatch` is the only view in the public schema, so the
+-- blast radius is exactly this one object, but it's read from by
+-- nearly every operational page built since Phase 3c (0017): the
+-- Loads list, load detail, Load Board, Payroll, the driver portal,
+-- the dashboard, Reports, Invoicing's delivered-loads list, and both
+-- of Phase 7's own lane-history/backhaul lookups. Read-only exposure
+-- only — nothing writes through the view (grepped for `.update(` /
+-- `.insert(` / `.delete(` against it across the whole codebase, none
+-- found), so this was a data-visibility leak, not a tampering one.
+--
+-- Fix: `security_invoker = true` (Postgres 15+; this project runs
+-- 17.6) makes the view execute using the CALLING role's own
+-- privileges instead of the owner's, so RLS on the underlying tables
+-- applies exactly as if the view's own SQL had been run directly —
+-- restoring the same per-row company scoping every other query in
+-- this app already has. No application code changes needed; every
+-- existing `.from("loads_with_dispatch")` call is unaffected except
+-- that it now actually returns only the caller's own company's rows.
+
+alter view public.loads_with_dispatch set (security_invoker = true);
