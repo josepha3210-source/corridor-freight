@@ -13,7 +13,7 @@ export default async function SettlementDetailPage({
   const { data: settlement } = await supabase
     .from("settlements")
     .select(
-      "id, status, created_at, paid_at, notes, drivers ( full_name ), settlement_line_items ( id, line_type, description, amount )"
+      "id, status, created_at, paid_at, notes, driver_id, drivers ( full_name ), settlement_line_items ( id, line_type, description, amount )"
     )
     .eq("id", params.id)
     .single();

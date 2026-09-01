@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SettlementPdfButton } from "./SettlementPdfButton";
@@ -13,6 +14,7 @@ export type Settlement = {
   created_at: string;
   paid_at: string | null;
   notes: string | null;
+  driver_id: string;
   drivers: { full_name: string } | null;
   settlement_line_items: LineItem[];
 };
@@ -74,7 +76,15 @@ export function SettlementDetailClient({
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{driverName}</h2>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{driverName}</h2>
+            <Link
+              href={`/dashboard/drivers/${settlement.driver_id}`}
+              className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
+            >
+              View driver scorecard →
+            </Link>
+          </div>
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASSES[settlement.status]}`}>
             {settlement.status}
           </span>

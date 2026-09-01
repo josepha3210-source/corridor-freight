@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { InviteDriverButton } from "./InviteDriverButton";
@@ -153,7 +154,12 @@ export function DriverRow({ driver }: { driver: Driver }) {
   return (
     <tr>
       <td className="px-6 py-3 font-medium text-slate-900 dark:text-slate-100">
-        {driver.full_name}
+        <Link
+          href={`/dashboard/drivers/${driver.id}`}
+          className="hover:text-brand-700 hover:underline dark:hover:text-brand-400"
+        >
+          {driver.full_name}
+        </Link>
       </td>
       <td className="px-6 py-3 text-slate-600 dark:text-slate-400">{driver.phone || "—"}</td>
       <td className="px-6 py-3 text-slate-600 dark:text-slate-400">{driver.email || "—"}</td>
