@@ -7,6 +7,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { DeliveryConfirmationForm } from "@/components/DeliveryConfirmationForm";
 import { calculateMileage } from "@/lib/create-load";
 import { findPriorDropoffForDriver, locationsMatch } from "@/lib/backhaul";
+import { DraftInvoiceButton } from "./DraftInvoiceButton";
+import Link from "next/link";
 
 type Driver = { id: string; full_name: string; status: "active" | "inactive" };
 type Truck = { id: string; plate_number: string | null; status: "active" | "maintenance" | "inactive" };
@@ -37,6 +39,7 @@ type Load = {
   delivered_at: string | null;
   notes: string | null;
   tracking_token: string;
+  customer_id: string | null;
 };
 
 export function LoadDetailClient({
@@ -46,6 +49,10 @@ export function LoadDetailClient({
   trucks,
   companyLogoUrl,
   mileageEnabled,
+  alreadyInvoiced,
+  existingInvoiceId,
+  customerPaymentTerms,
+  companyId,
 }: {
   load: Load;
   driverName: string | null;
@@ -53,6 +60,10 @@ export function LoadDetailClient({
   trucks: Truck[];
   companyLogoUrl?: string | null;
   mileageEnabled: boolean;
+  alreadyInvoiced: boolean;
+  existingInvoiceId: string | null;
+  customerPaymentTerms: string | null;
+  companyId: string | null;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -570,6 +581,38 @@ export function LoadDetailClient({
                   alt={`Signature of ${load.signed_by_name ?? "recipient"}`}
                   className="mt-4 max-w-xs rounded-md border border-slate-200 bg-white dark:border-slate-700"
                 />
+              )}
+
+              {/* POD-triggered invoicing (v2 prompt Phase 7) — right
+                  where the delivery just got confirmed, offer the
+                  natural next step for billing too, not just pay. */}
+              {alreadyInvoiced ? (
+                <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">
+                  Already invoiced —{" "}
+                  <Link
+                    href={`/dashboard/invoicing/${existingInvoiceId}`}
+                    className="text-brand-700 hover:underline dark:text-brand-400"
+                  >
+                    view invoice →
+                  </Link>
+                </p>
+              ) : load.customer_id && companyId ? (
+                <DraftInvoiceButton
+                  loadId={load.id}
+                  customerId={load.customer_id}
+                  companyId={companyId}
+                  paymentTerms={customerPaymentTerms}
+                />
+              ) : (
+                <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                  This load has no linked customer, so an invoice can&apos;t
+                  be drafted from it automatically — create one manually
+                  from the{" "}
+                  <a href="/dashboard/invoicing" className="text-brand-700 hover:underline dark:text-brand-400">
+                    Invoicing
+                  </a>{" "}
+                  page.
+                </p>
               )}
             </div>
           )}

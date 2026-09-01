@@ -9,7 +9,7 @@ export default async function LoadDetailPage({
 }: {
   params: { id: string };
 }) {
-  const { supabase, logoUrl } = await requireProfile();
+  const { supabase, logoUrl, profile } = await requireProfile();
 
   // RLS's "select own company loads"/dispatches policies mean this
   // simply returns no row (not another tenant's data) if the id belongs
@@ -22,7 +22,7 @@ export default async function LoadDetailPage({
   const { data: load } = await supabase
     .from("loads_with_dispatch")
     .select(
-      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, truck_id, truck_plate, signed_by_name, signature_data, delivered_at, notes, tracking_token"
+      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, truck_id, truck_plate, signed_by_name, signature_data, delivered_at, notes, tracking_token, customer_id"
     )
     .eq("id", params.id)
     .single();
@@ -40,10 +40,33 @@ export default async function LoadDetailPage({
   // assigned" when building the dropdown's options. Same reasoning for
   // trucks — a truck's current assignment shouldn't visually disappear
   // just because it's since gone inactive.
-  const [{ data: drivers }, { data: trucks }] = await Promise.all([
-    supabase.from("drivers").select("id, full_name, status").order("full_name"),
-    supabase.from("trucks").select("id, plate_number, status").order("plate_number"),
-  ]);
+  //
+  // POD-triggered invoicing (v2 prompt Phase 7) — whether this load is
+  // already on a live (non-void) invoice, and the customer's payment
+  // terms if it isn't, so the delivered section can offer to draft one
+  // instead of sending the dispatcher over to the Invoicing page to
+  // start from scratch.
+  const [{ data: drivers }, { data: trucks }, { data: existingLineItem }, { data: customer }] =
+    await Promise.all([
+      supabase.from("drivers").select("id, full_name, status").order("full_name"),
+      supabase.from("trucks").select("id, plate_number, status").order("plate_number"),
+      supabase
+        .from("invoice_line_items")
+        .select("invoice_id, invoices ( status )")
+        .eq("load_id", params.id)
+        .maybeSingle(),
+      load.customer_id
+        ? supabase
+            .from("contacts")
+            .select("payment_terms")
+            .eq("id", load.customer_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+  const existingInvoiceStatus = (existingLineItem?.invoices as unknown as { status: string } | null)
+    ?.status;
+  const alreadyInvoiced = Boolean(existingLineItem) && existingInvoiceStatus !== "void";
 
   return (
     <>
@@ -62,6 +85,10 @@ export default async function LoadDetailPage({
           trucks={trucks ?? []}
           companyLogoUrl={logoUrl}
           mileageEnabled={isGoogleMapsConfigured()}
+          alreadyInvoiced={alreadyInvoiced}
+          existingInvoiceId={alreadyInvoiced ? existingLineItem?.invoice_id ?? null : null}
+          customerPaymentTerms={customer?.payment_terms ?? null}
+          companyId={profile?.company_id ?? null}
         />
       </div>
     </>
