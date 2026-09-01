@@ -2589,3 +2589,66 @@ to catch — and did.
 addition and the dashboard fix, checked separately). Both migrations
 (`0025`, `0026`) applied live via the Supabase MCP the same way
 `0012`–`0024` were.
+
+## 92. REAL FLEET BI METRICS (v2 PROMPT UPDATE) — BUILT AND VERIFIED LIVE, ONE METRIC DELIBERATELY DEFERRED
+
+Three of the five metrics the new prompt asked for, built and verified
+against real data; the other two flagged as genuine gaps rather than
+faked.
+
+**Discovered gap, fixed first**: building fleet utilization required
+knowing which *truck* ran a given dispatch — nothing tracked that.
+`dispatches` had a driver but no truck; `trucks.assigned_driver_id` is
+a default/home assignment, not a per-dispatch fact (a driver can run a
+different truck on a given day). Added `dispatches.truck_id` (0027)
+rather than approximate utilization from a driver's assigned truck —
+that would be exactly the "present a guess as a real number" trap this
+build has avoided everywhere else. Threaded through the load create/
+edit forms and `loads_with_dispatch` (`truck_plate` appended at the
+view's end, same column-order rule 0024 already documented).
+
+**`fleet_bi_metrics()` (0028)** — one aggregate function, same
+conventions as `dashboard_summary()`:
+- **Revenue per mile** — trailing 30 days, delivered loads with a real
+  mileage figure only (a load with no miles is excluded, not treated as
+  0 — that would make the number meaningless). Owner/admin gated,
+  financial. Shows a trend arrow against the prior 30 days once there's
+  enough history.
+- **On-time delivery rate** — delivered at or before the dropoff
+  stop's own scheduled time. Operational, visible to every role.
+- **Fleet utilization** — % of active trucks with a scheduled dispatch
+  in the last 7 days. Needed the new `truck_id` column to mean anything
+  real.
+
+**Two metrics deliberately not built, flagged rather than faked**:
+- **Empty-mile percentage** — needs the deadhead leg between one
+  dispatch's dropoff and the driver's *next* dispatch's pickup, which
+  nothing in this schema tracks (`dispatches.miles` is one dispatch's
+  loaded miles, not a route graph across dispatches for a driver over
+  time). This is a genuine product decision, not a coding gap: should
+  deadhead be a manual "next-pickup distance" field per dispatch, or
+  computed automatically by chaining a driver's dispatches by time and
+  calling Google Maps between the previous dropoff and next pickup?
+  Either is buildable; guessing which one Joseph wants isn't.
+- **Lane profitability** — the prompt itself says to treat this as a
+  real Reports page once there's enough data, not a dashboard tile;
+  building it well also needs a decision on how to parse "state" out of
+  free-text stop locations (some real entries are inconsistently
+  formatted — confirmed live, e.g. "auroura coo" with no comma at all).
+  Deferred to its own pass rather than shipped fragile.
+
+### Verified live
+
+`npx tsc --noEmit` and `npm run build` clean. Logged in as the real
+owner test account and confirmed all three numbers were genuinely
+correct, not just non-crashing: Revenue per mile showed exactly
+**$16.30/mi** — the precise result of $1,500 ÷ 92 miles from the load
+created in §90's verification pass. On-time delivery rate showed 100%
+(1 sample, correctly delivered before its scheduled dropoff). Fleet
+utilization showed 0% (0 of 1 active trucks) — correct given that
+truck's one dispatch was scheduled for a future date at the time of
+the check, so backward-looking "last 7 days" genuinely has nothing to
+count yet, not a bug.
+
+Committed and pushed (`6e56819`); Vercel production deployment
+triggered automatically, confirmed reaching `READY`.

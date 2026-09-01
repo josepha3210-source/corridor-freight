@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { CorridorLogo } from "@/components/CorridorLogo";
+import { MarketingHeader } from "@/components/marketing/MarketingHeader";
+import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
 /**
  * Public marketing page for logged-out visitors. A logged-in user never
@@ -28,25 +29,7 @@ export default async function Home() {
 
   return (
     <div className="bg-white dark:bg-slate-950">
-      <header className="border-b border-slate-200 dark:border-slate-800">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <CorridorLogo />
-          <nav className="flex items-center gap-4 text-sm font-medium">
-            <Link
-              href="/login"
-              className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-md bg-brand-600 px-4 py-2 text-white transition hover:bg-brand-700"
-            >
-              Sign up
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <MarketingHeader />
 
       <main>
         {/* Hero */}
@@ -76,7 +59,7 @@ export default async function Home() {
         </section>
 
         {/* Features */}
-        <section className="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50">
+        <section id="features" className="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50">
           <div className="mx-auto max-w-6xl px-6 py-16">
             <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
               <Feature
@@ -99,48 +82,26 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* Pricing preview */}
-        <section className="mx-auto max-w-6xl px-6 py-16">
-          <div className="text-center">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              Simple, flat pricing
-            </h2>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-              No per-mile fees or surprise add-ons. Pick the plan that
-              matches your fleet.
-            </p>
-          </div>
-
-          <div className="mt-8 grid gap-6 sm:grid-cols-3">
-            <PricingPreviewCard
-              name="Starter"
-              price="$85/mo"
-              detail="Up to 10 drivers"
-              planKey="starter"
-            />
-            <PricingPreviewCard
-              name="Growth"
-              price="$125/mo"
-              detail="Up to 25 drivers"
-              planKey="growth"
-              highlighted
-            />
-            <PricingPreviewCard
-              name="Fleet"
-              price="$750/mo"
-              detail="Up to 30 drivers"
-              planKey="fleet"
-            />
-          </div>
-
-          <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
+        {/* Pricing teaser — no dollar figures here; the real numbers
+            live on the dedicated /pricing page, and paid tiers there
+            route to a quote request, not a published price (deliberate
+            v2-prompt decision — see /pricing for the reasoning). */}
+        <section className="mx-auto max-w-6xl px-6 py-16 text-center">
+          <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+            Driver-based pricing, not truck-count
+          </h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm text-slate-600 dark:text-slate-400">
+            Trial, Starter, Growth, and Fleet tiers, scaled to how many
+            drivers you run.
+          </p>
+          <div className="mt-6">
             <Link
-              href="/signup"
+              href="/pricing"
               className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
             >
-              Sign up to see full pricing details →
+              See plans and features →
             </Link>
-          </p>
+          </div>
         </section>
 
         {/* Final CTA */}
@@ -161,9 +122,7 @@ export default async function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 py-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-500">
-        Corridor Freight
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }
@@ -187,42 +146,3 @@ function Feature({
   );
 }
 
-function PricingPreviewCard({
-  name,
-  price,
-  detail,
-  planKey,
-  highlighted,
-}: {
-  name: string;
-  price: string;
-  detail: string;
-  planKey: "starter" | "growth" | "fleet";
-  highlighted?: boolean;
-}) {
-  return (
-    <div
-      className={`flex flex-col rounded-xl border p-6 text-center ${
-        highlighted
-          ? "border-brand-500 ring-1 ring-brand-500"
-          : "border-slate-200 dark:border-slate-800"
-      }`}
-    >
-      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-        {name}
-      </h3>
-      <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">
-        {price}
-      </p>
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-        {detail}
-      </p>
-      <Link
-        href={`/signup?plan=${planKey}`}
-        className="mt-4 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700"
-      >
-        Choose {name}
-      </Link>
-    </div>
-  );
-}

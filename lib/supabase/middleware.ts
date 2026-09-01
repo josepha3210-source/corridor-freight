@@ -58,6 +58,15 @@ export async function updateSession(request: NextRequest) {
   // only run if middleware lets an unauthenticated request reach it in
   // the first place.
   const isRoot = path === "/";
+  // Same reasoning, for the rest of the public marketing site (v2
+  // prompt's Phase 6) — Pricing and the IFTA Calculator are logged-out
+  // pages by design, not just "/" — and for robots.txt/sitemap.xml,
+  // which a search engine crawler requests with no session cookie at
+  // all; without this, every crawler hit bounced to /login and neither
+  // file was ever actually reachable, silently defeating the whole
+  // point of adding them.
+  const isPublicMarketingPage = path === "/pricing" || path === "/ifta-calculator";
+  const isSeoFile = path === "/robots.txt" || path === "/sitemap.xml";
 
   if (
     !user &&
@@ -65,7 +74,9 @@ export async function updateSession(request: NextRequest) {
     !isAuthCallback &&
     !isPublicAsset &&
     !isStripeWebhook &&
-    !isRoot
+    !isRoot &&
+    !isPublicMarketingPage &&
+    !isSeoFile
   ) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
