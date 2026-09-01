@@ -77,8 +77,49 @@ export function CreateLoadForm({
   const [miles, setMiles] = useState("");
   const [calculatingMiles, setCalculatingMiles] = useState(false);
   const [mileageNote, setMileageNote] = useState<string | null>(null);
+  const [laneHistory, setLaneHistory] = useState<{
+    count: number;
+    avgRate: number;
+    avgRatePerMile: number | null;
+  } | null>(null);
 
   const margin = (Number(clientRate) || 0) - (Number(driverPay) || 0);
+
+  // Own rate history for this exact lane (v2 prompt Phase 7) — not
+  // real-time market data (that's a paid DAT/Truckstop feed, out of
+  // scope), just "what have I actually charged on this route before."
+  // Exact-string match on pickup/dropoff, same reasoning the Reports
+  // page's lane grouping uses — reliable at the cost of only matching
+  // a route entered the same way before.
+  async function checkLaneHistory() {
+    if (!pickupLocation.trim() || !dropoffLocation.trim()) {
+      setLaneHistory(null);
+      return;
+    }
+    const { data } = await supabase
+      .from("loads_with_dispatch")
+      .select("client_rate, miles")
+      .eq("status", "delivered")
+      .ilike("pickup_location", pickupLocation.trim())
+      .ilike("dropoff_location", dropoffLocation.trim());
+
+    if (!data || data.length === 0) {
+      setLaneHistory(null);
+      return;
+    }
+    const totalRate = data.reduce((sum, l) => sum + Number(l.client_rate), 0);
+    // Rate-per-mile only from the subset that actually has mileage on
+    // record — mixing in loads with no miles would understate it, not
+    // just be imprecise.
+    const withMiles = data.filter((l) => l.miles != null && Number(l.miles) > 0);
+    const rateForMilesSubset = withMiles.reduce((sum, l) => sum + Number(l.client_rate), 0);
+    const totalMiles = withMiles.reduce((sum, l) => sum + Number(l.miles), 0);
+    setLaneHistory({
+      count: data.length,
+      avgRate: totalRate / data.length,
+      avgRatePerMile: totalMiles > 0 ? rateForMilesSubset / totalMiles : null,
+    });
+  }
 
   async function handleCalculateMileage() {
     if (!pickupLocation.trim() || !dropoffLocation.trim()) {
@@ -164,6 +205,7 @@ export function CreateLoadForm({
     setDriverPay("");
     setMiles("");
     setMileageNote(null);
+    setLaneHistory(null);
     setOpen(false);
     router.refresh();
   }
@@ -253,6 +295,7 @@ export function CreateLoadForm({
           label="Pickup location"
           value={pickupLocation}
           onChange={setPickupLocation}
+          onBlur={checkLaneHistory}
           placeholder="Joliet, IL"
           required
         />
@@ -268,6 +311,7 @@ export function CreateLoadForm({
           label="Dropoff location"
           value={dropoffLocation}
           onChange={setDropoffLocation}
+          onBlur={checkLaneHistory}
           placeholder="Aurora, CO"
           required
         />
@@ -279,13 +323,35 @@ export function CreateLoadForm({
           required
         />
 
-        <Field
-          label="Client rate ($)"
-          type="number"
-          value={clientRate}
-          onChange={setClientRate}
-          placeholder="1200.00"
-        />
+        <div>
+          <Field
+            label="Client rate ($)"
+            type="number"
+            value={clientRate}
+            onChange={setClientRate}
+            placeholder="1200.00"
+          />
+          {laneHistory && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              You&apos;ve averaged{" "}
+              <span className="font-medium text-slate-700 dark:text-slate-300">
+                ${laneHistory.avgRate.toFixed(0)}
+              </span>
+              {laneHistory.avgRatePerMile != null && (
+                <>
+                  {" "}
+                  (
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                    ${laneHistory.avgRatePerMile.toFixed(2)}/mi
+                  </span>
+                  )
+                </>
+              )}{" "}
+              on this lane over {laneHistory.count} past load
+              {laneHistory.count === 1 ? "" : "s"}.
+            </p>
+          )}
+        </div>
         <Field
           label="Driver pay ($)"
           type="number"
@@ -362,6 +428,7 @@ function Field({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   required,
   type = "text",
@@ -369,6 +436,7 @@ function Field({
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   required?: boolean;
   type?: string;
@@ -383,6 +451,7 @@ function Field({
         required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         step={type === "number" ? "0.01" : undefined}
         min={type === "number" ? "0" : undefined}
