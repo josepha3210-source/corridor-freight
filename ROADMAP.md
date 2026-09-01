@@ -3047,3 +3047,166 @@ Committed (`88771db`); pushed; Vercel production deployment triggered.
 
 POD-triggered invoicing is the last one. Continuing autonomously into
 that next.
+
+---
+
+## 98. CRITICAL SECURITY FIX — `loads_with_dispatch` WAS BYPASSING RLS ACROSS ALL COMPANIES
+
+**This is the most important entry in this document.** While building
+POD-triggered invoicing (§99), a load's detail page rendered
+completely for a test user who, on closer inspection, had no real
+access to that load at all — it belonged to a different company. That
+one accidental observation led to finding and fixing a real,
+pre-existing, severe multi-tenant data leak.
+
+### Root cause
+
+`loads_with_dispatch` (0017) is a plain Postgres view — every
+operational page in this app has read through it since Phase 3c. A
+plain view with no `security_invoker` executes its query against the
+underlying tables **as the view's owner**, not as the calling user.
+This view is owned by `postgres`, which also owns `loads`/
+`dispatches`/`load_stops` — and a table's owner bypasses RLS on it by
+default unless `FORCE ROW LEVEL SECURITY` is explicitly set (it never
+was). Every RLS policy on those three tables is written correctly and
+correctly scoped by `company_id` — confirmed directly against
+`pg_policies`, nothing wrong there. Querying the *base tables*
+directly was always safe. Querying the *view* was not: it silently
+returned every company's rows to any authenticated user, regardless of
+role or company.
+
+### How it was found and scoped
+
+Emulating the exact session (`set local role authenticated; set local
+request.jwt.claims = '{"sub": "<real user id>"}'`) for a real owner
+test account and comparing counts in the same transaction:
+- `select count(*) from loads` (RLS-scoped, base table) → **4** — her
+  real total.
+- `select count(*) from loads_with_dispatch` (the view, no filter) →
+  **34** — every load across every company in the entire database.
+
+`loads_with_dispatch` is the only view in the `public` schema, so the
+blast radius is exactly this one object — but it's read from by
+nearly every operational page built since Phase 3c: the Loads list,
+load detail, Load Board, Payroll, the driver portal, the dashboard,
+Reports (§95's lane profitability), Invoicing's delivered-loads list,
+and both of Phase 7's own lane-history (§95) and backhaul-awareness
+(§96) lookups. Grepped the whole codebase for `.update(`/`.insert(`/
+`.delete(` against `"loads_with_dispatch"` — none found anywhere, so
+this was a read-only visibility leak, not a tampering vector: nothing
+in the app ever wrote through the view.
+
+A likely-related, previously-misdiagnosed clue from earlier this
+session (not written up in this document at the time): two stray
+"L-0004" links were noticed via a page-search tool, investigated, and
+found to genuinely belong to two different companies — at the time
+this was chalked up to a stale DOM artifact from that tool, since the
+page's own rendered text showed only one correctly-scoped link and the
+per-company unique load-number constraint wasn't actually violated.
+That may well have been this same underlying leak showing through in a
+smaller, easier-to-rationalize way — worth remembering that "the
+visible text looks right" doesn't rule out a broader access-control
+gap underneath it.
+
+### Fix
+
+```sql
+alter view public.loads_with_dispatch set (security_invoker = true);
+```
+
+Postgres 15+ (this project runs 17.6). This makes the view execute
+using the *calling role's own privileges* instead of the owner's, so
+RLS on the underlying tables applies exactly as if the view's own SQL
+had been run directly. No application code changes needed — every
+existing `.from("loads_with_dispatch")` call across the codebase is
+unaffected except that it now actually returns only the caller's own
+company's rows, which is what every one of them always assumed.
+
+### Verified live, both at the SQL level and in the real browser
+
+Re-ran the identical emulated-session query post-fix: visible row
+count dropped from 34 to 4 exactly, cross-tenant single-row visibility
+(the specific foreign load that started this) confirmed at 0. Then, in
+the actual running app, logged in as the same real owner account:
+dashboard's "Loads in progress" dropped from a blended 19 down to her
+real 1; "Delivered all-time" correctly stayed 3 (those 3 really were
+hers); Revenue billed / Driver compensation / Contribution margin
+snapped to exactly $3,600 / $2,500 / $1,100 — precisely what her own 4
+loads sum to; the Loads list dropped from 34 rows to her real 4; the
+18 "overdue" items and 6 "unassigned loads" (both blends of other
+companies' data mixed into what looked like her own dashboard) cleared
+correctly to "nothing overdue" / "every load has a driver assigned";
+and navigating directly to the other company's load by its previously-
+known id now correctly 404s instead of rendering.
+
+Also cleaned up: two stray test invoices created against the wrong-
+company load while chasing this down (before the fix was in) were
+marked `void` — no line items were ever actually written to them,
+since RLS on the base `loads` table correctly blocked
+`create_invoice_with_line_items()`'s own insert even while the view
+bug was still live, which is in fact how this was first noticed (the
+invoice was created but came back empty).
+
+Committed (`db1190f`) as its own dedicated commit, separate from the
+feature that led to finding it; pushed; Vercel production deployment
+triggered.
+
+### Why this doesn't get its own AskUserQuestion
+
+This is a fix, not a decision — there was no reasonable path other
+than closing a live cross-tenant data leak the moment it was
+confirmed. Per the standing autonomy instruction, this is exactly the
+kind of thing to just fix and clearly document, not pause on.
+
+---
+
+## 99. PHASE 7 — POD-TRIGGERED INVOICING — BUILT AND VERIFIED LIVE (ALL FIVE PHASE 7 DIFFERENTIATORS NOW COMPLETE)
+
+The last of the five Phase 7 differentiators. Right where a dispatcher
+already sees "this load was just delivered" (the delivered section of
+the load detail page's Dispatch tab, next to the driver-pay pointer to
+Payroll), offer to draft the customer invoice too, instead of sending
+them to the Invoicing page to start one from scratch.
+
+`app/dashboard/loads/[id]/DraftInvoiceButton.tsx` calls the exact same
+`createInvoice()` RPC the Invoicing page's own form already uses, with
+this one load pre-selected, then redirects to the new invoice's own
+detail page. **"Offer to draft — never auto-send"** per the v2
+prompt's own framing, for two independent reasons: `
+create_invoice_with_line_items()` (0018) always creates the invoice as
+`status='draft'` regardless of caller, and the button only ever fires
+on an explicit click — nothing runs automatically off the delivery
+event itself. A person reviews (and can edit) the draft before any
+separate, explicit "mark as sent" action elsewhere in Invoicing.
+
+`page.tsx` gained the two queries needed to decide what to show:
+whether this load is already on a live (non-void) invoice, and the
+customer's payment terms if it isn't (to default the new invoice's due
+date the same way `CreateInvoiceForm` already does). `
+LoadDetailClient.tsx`'s delivered section now shows one of three
+things: the draft button, an "Already invoiced — view invoice →" link,
+or — for the handful of loads with no linked customer contact — a note
+to create one manually from Invoicing instead of a button that can't
+actually work.
+
+### Verified live
+
+This is the feature whose verification pass surfaced §98. Once that
+fix was live, drafted a real invoice from L-0003 (Northgate
+Distribution, delivered, previously uninvoiced) and confirmed it was
+created correctly as a draft with the right $900.00 line item,
+reviewable before sending. Reloading the same load's page then
+correctly showed "Already invoiced — view invoice →" pointing at the
+right invoice. `npx tsc --noEmit` and `npm run build` both clean.
+
+Committed (`64999d3`); pushed; Vercel production deployment triggered.
+
+### Phase 7 is now fully complete
+
+Customer tracking (§94), lane profitability + rate history (§95),
+backhaul awareness (§96), driver scorecards (§97), and POD-triggered
+invoicing (§99) — all five differentiators from the v2 prompt's Phase
+7 are built, applied live, and verified. Combined with Phases 0–6
+(§77–93) from earlier this session, the full v2 transformation prompt
+is complete. Continuing autonomously to look for the next real thing
+worth doing, per the standing instruction.
