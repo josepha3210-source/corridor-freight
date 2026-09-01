@@ -8,6 +8,7 @@ import { DeliveryConfirmationForm } from "@/components/DeliveryConfirmationForm"
 import { calculateMileage } from "@/lib/create-load";
 
 type Driver = { id: string; full_name: string; status: "active" | "inactive" };
+type Truck = { id: string; plate_number: string | null; status: "active" | "maintenance" | "inactive" };
 
 type Load = {
   id: string;
@@ -28,6 +29,8 @@ type Load = {
   driver_pay: number;
   miles: number | null;
   driver_id: string | null;
+  truck_id: string | null;
+  truck_plate: string | null;
   signed_by_name: string | null;
   signature_data: string | null;
   delivered_at: string | null;
@@ -38,12 +41,14 @@ export function LoadDetailClient({
   load,
   driverName,
   drivers,
+  trucks,
   companyLogoUrl,
   mileageEnabled,
 }: {
   load: Load;
   driverName: string | null;
   drivers: Driver[];
+  trucks: Truck[];
   companyLogoUrl?: string | null;
   mileageEnabled: boolean;
 }) {
@@ -55,6 +60,9 @@ export function LoadDetailClient({
   // opening Edit doesn't look like the load silently lost its driver.
   const selectableDrivers = drivers.filter(
     (d) => d.status === "active" || d.id === load.driver_id
+  );
+  const selectableTrucks = trucks.filter(
+    (t) => t.status === "active" || t.id === load.truck_id
   );
 
   // Tabbed detail page (v2 prompt's Phase 3c spec) — booking info
@@ -74,6 +82,7 @@ export function LoadDetailClient({
   const [loadNumber, setLoadNumber] = useState(load.load_number);
   const [clientName, setClientName] = useState(load.client_name);
   const [driverId, setDriverId] = useState(load.driver_id ?? "");
+  const [truckId, setTruckId] = useState(load.truck_id ?? "");
   const [pickupLocation, setPickupLocation] = useState(load.pickup_location);
   const [pickupAt, setPickupAt] = useState(toLocalInput(load.pickup_at));
   const [dropoffLocation, setDropoffLocation] = useState(load.dropoff_location);
@@ -113,6 +122,7 @@ export function LoadDetailClient({
     setLoadNumber(load.load_number);
     setClientName(load.client_name);
     setDriverId(load.driver_id ?? "");
+    setTruckId(load.truck_id ?? "");
     setPickupLocation(load.pickup_location);
     setPickupAt(toLocalInput(load.pickup_at));
     setDropoffLocation(load.dropoff_location);
@@ -184,6 +194,7 @@ export function LoadDetailClient({
       .from("dispatches")
       .update({
         driver_id: driverId || null,
+        truck_id: truckId || null,
         status: nextStatus,
         driver_pay: Number(driverPay) || 0,
         miles: miles ? Number(miles) : null,
@@ -244,7 +255,24 @@ export function LoadDetailClient({
               ))}
             </select>
           </div>
-          <div />
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Truck
+            </label>
+            <select
+              value={truckId}
+              onChange={(e) => setTruckId(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <option value="">Not recorded</option>
+              {selectableTrucks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.plate_number || t.id.slice(0, 8)}
+                  {t.status === "inactive" ? " (inactive)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <EditField
             label="Pickup location"
@@ -403,6 +431,7 @@ export function LoadDetailClient({
         <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
           <dl className="grid gap-4 sm:grid-cols-2">
             <Detail label="Driver" value={driverName ?? "Unassigned"} />
+            <Detail label="Truck" value={load.truck_plate ?? "Not recorded"} />
             <Detail label="Pickup" value={load.pickup_location} sub={formatDate(load.pickup_at)} />
             <Detail label="Dropoff" value={load.dropoff_location} sub={formatDate(load.dropoff_at)} />
             <Detail label="Client rate" value={`$${Number(load.client_rate).toFixed(2)}`} />

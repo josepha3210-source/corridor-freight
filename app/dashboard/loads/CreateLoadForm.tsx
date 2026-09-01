@@ -8,6 +8,7 @@ import { createLoad, calculateMileage } from "@/lib/create-load";
 
 type Driver = { id: string; full_name: string };
 type Customer = { id: string; name: string };
+type Truck = { id: string; plate_number: string | null };
 
 /**
  * load_number is deliberately not a field here — the set_load_number
@@ -46,11 +47,13 @@ export function CreateLoadForm({
   companyId,
   drivers,
   customers,
+  trucks,
   mileageEnabled,
 }: {
   companyId: string;
   drivers: Driver[];
   customers: Customer[];
+  trucks: Truck[];
   mileageEnabled: boolean;
 }) {
   const router = useRouter();
@@ -68,6 +71,7 @@ export function CreateLoadForm({
   const [dropoffLocation, setDropoffLocation] = useState("");
   const [dropoffAt, setDropoffAt] = useState("");
   const [driverId, setDriverId] = useState("");
+  const [truckId, setTruckId] = useState("");
   const [clientRate, setClientRate] = useState("");
   const [driverPay, setDriverPay] = useState("");
   const [miles, setMiles] = useState("");
@@ -138,6 +142,7 @@ export function CreateLoadForm({
       dropoffLocation,
       dropoffAt: dropoffAt || null,
       miles: miles ? Number(miles) : null,
+      truckId: truckId || null,
     });
 
     setLoading(false);
@@ -154,6 +159,7 @@ export function CreateLoadForm({
     setDropoffLocation("");
     setDropoffAt("");
     setDriverId("");
+    setTruckId("");
     setClientRate("");
     setDriverPay("");
     setMiles("");
@@ -221,6 +227,23 @@ export function CreateLoadForm({
             {drivers.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Truck (optional)
+          </label>
+          <select
+            value={truckId}
+            onChange={(e) => setTruckId(e.target.value)}
+            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+          >
+            <option value="">Not recorded</option>
+            {trucks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.plate_number || t.id.slice(0, 8)}
               </option>
             ))}
           </select>

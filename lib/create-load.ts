@@ -23,6 +23,8 @@ export async function createLoad(
     dropoffAt: string | null;
     /** From the Google Maps mileage calculation (0024) — optional, manual override always wins since this is just what the API prefilled. */
     miles?: number | null;
+    /** Which truck actually ran this dispatch (0027) — separate from the driver's default/home truck (trucks.assigned_driver_id), since a driver can run a different one on a given day. Optional — most of this app's own history has no truck on record and that's a true "unknown," not an error. */
+    truckId?: string | null;
   }
 ) {
   return supabase.rpc("create_load_with_dispatch", {
@@ -38,6 +40,7 @@ export async function createLoad(
     p_dropoff_location: input.dropoffLocation,
     p_dropoff_at: input.dropoffAt,
     p_miles: input.miles ?? null,
+    p_truck_id: input.truckId || null,
   });
 }
 

@@ -39,20 +39,26 @@ export default async function LoadsPage({
     loadsQuery = loadsQuery.eq("status", statusFilter);
   }
 
-  const [{ data: loads }, { data: drivers }, { data: customers }] = await Promise.all([
-    loadsQuery,
-    supabase
-      .from("drivers")
-      .select("id, full_name")
-      .eq("status", "active")
-      .order("full_name"),
-    supabase
-      .from("contacts")
-      .select("id, name")
-      .eq("type", "customer")
-      .eq("status", "active")
-      .order("name"),
-  ]);
+  const [{ data: loads }, { data: drivers }, { data: customers }, { data: trucks }] =
+    await Promise.all([
+      loadsQuery,
+      supabase
+        .from("drivers")
+        .select("id, full_name")
+        .eq("status", "active")
+        .order("full_name"),
+      supabase
+        .from("contacts")
+        .select("id, name")
+        .eq("type", "customer")
+        .eq("status", "active")
+        .order("name"),
+      supabase
+        .from("trucks")
+        .select("id, plate_number")
+        .eq("status", "active")
+        .order("plate_number"),
+    ]);
 
   const csvRows: LoadCsvRow[] = (loads ?? []).map((load) => {
     const driverName = load.driver_name ?? "Unassigned";
@@ -86,6 +92,7 @@ export default async function LoadsPage({
               companyId={profile.company_id}
               drivers={drivers ?? []}
               customers={customers ?? []}
+              trucks={trucks ?? []}
               mileageEnabled={isGoogleMapsConfigured()}
             />
           )}

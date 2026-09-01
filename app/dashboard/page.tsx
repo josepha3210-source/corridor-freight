@@ -234,6 +234,23 @@ export default async function DashboardPage() {
       .not("load_id", "is", null),
   ]);
 
+  // Fleet BI metrics (v2 prompt update) — deliberately its own query,
+  // not folded into the big Promise.all above: same "isolated queries"
+  // lesson from requireProfile()'s own history (see ROADMAP) — a new
+  // aggregate failing on its own (a migration not yet run, a role-gate
+  // hiccup) must never be able to null out everything else on this
+  // page with it.
+  const { data: biMetrics } = await supabase.rpc("fleet_bi_metrics").single();
+  const bi = biMetrics as unknown as {
+    revenue_per_mile: number | null;
+    revenue_per_mile_prior: number | null;
+    on_time_delivery_rate: number | null;
+    on_time_sample_size: number | null;
+    fleet_utilization_rate: number | null;
+    active_truck_count: number | null;
+    utilized_truck_count: number | null;
+  } | null;
+
   const payments = paymentsData ?? [];
   const paidLoadIds = new Set(payments.map((p) => p.load_id));
   const settledLoadIds = new Set(
@@ -686,9 +703,108 @@ export default async function DashboardPage() {
             {deliveredCount} delivered load{deliveredCount === 1 ? "" : "s"}{" "}
             behind these numbers.
           </p>
+
+          {/* Revenue per mile — trailing 30 days, delivered loads with
+              a real mileage figure on record only (0028) — a load with
+              no miles is excluded rather than counted as 0, since that
+              would make the number meaningless, not just imprecise. */}
+          <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-800">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Revenue per mile
+            </h3>
+            {bi?.revenue_per_mile != null ? (
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                  {formatCurrency(bi.revenue_per_mile)}/mi
+                </span>
+                {bi.revenue_per_mile_prior != null && (
+                  <RevenuePerMileTrend
+                    current={bi.revenue_per_mile}
+                    prior={bi.revenue_per_mile_prior}
+                  />
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                No delivered loads with mileage on record in the last 30
+                days — set miles on a load (Create Load, or the load's
+                own Overview tab) to start tracking this.
+              </p>
+            )}
+          </div>
         </section>
       )}
+
+      {/* Fleet performance — operational, visible to every role
+          (dispatchers included), same boundary as active driver counts
+          elsewhere on this page. */}
+      <section className="mt-10">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Fleet performance
+        </h2>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+            <p className="text-sm text-slate-500 dark:text-slate-400">On-time delivery rate</p>
+            {bi?.on_time_delivery_rate != null ? (
+              <>
+                <p className="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                  {bi.on_time_delivery_rate.toFixed(0)}%
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
+                  {bi.on_time_sample_size} delivered load
+                  {bi.on_time_sample_size === 1 ? "" : "s"} with a scheduled
+                  dropoff time, last 30 days.
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                No delivered loads with a scheduled dropoff time in the
+                last 30 days yet.
+              </p>
+            )}
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+            <p className="text-sm text-slate-500 dark:text-slate-400">Fleet utilization</p>
+            {bi?.active_truck_count ? (
+              <>
+                <p className="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                  {(bi.fleet_utilization_rate ?? 0).toFixed(0)}%
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
+                  {bi.utilized_truck_count} of {bi.active_truck_count} active
+                  trucks had a scheduled dispatch in the last 7 days.
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                Add a truck (and assign one to a dispatch) to start
+                tracking this.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
     </>
+  );
+}
+
+function RevenuePerMileTrend({ current, prior }: { current: number; prior: number }) {
+  if (prior === 0) return null;
+  const changePct = ((current - prior) / prior) * 100;
+  const isUp = changePct > 0.5;
+  const isDown = changePct < -0.5;
+  return (
+    <span
+      className={`text-sm font-medium ${
+        isUp
+          ? "text-green-600 dark:text-green-400"
+          : isDown
+            ? "text-red-600 dark:text-red-400"
+            : "text-slate-500 dark:text-slate-400"
+      }`}
+    >
+      {isUp ? "↑" : isDown ? "↓" : "→"} {Math.abs(changePct).toFixed(0)}% vs. prior 30 days
+    </span>
   );
 }
 

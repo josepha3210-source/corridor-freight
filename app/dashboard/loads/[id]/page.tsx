@@ -22,7 +22,7 @@ export default async function LoadDetailPage({
   const { data: load } = await supabase
     .from("loads_with_dispatch")
     .select(
-      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, signed_by_name, signature_data, delivered_at, notes"
+      "id, dispatch_id, load_number, client_name, pickup_location, pickup_at, dropoff_location, dropoff_at, status, client_rate, driver_pay, miles, driver_id, driver_name, truck_id, truck_plate, signed_by_name, signature_data, delivered_at, notes"
     )
     .eq("id", params.id)
     .single();
@@ -37,11 +37,13 @@ export default async function LoadDetailPage({
   // to appear as the selected option if they're the one already assigned
   // to this load, so opening Edit doesn't visually blank the selection.
   // LoadDetailClient itself narrows this to "active, or currently
-  // assigned" when building the dropdown's options.
-  const { data: drivers } = await supabase
-    .from("drivers")
-    .select("id, full_name, status")
-    .order("full_name");
+  // assigned" when building the dropdown's options. Same reasoning for
+  // trucks — a truck's current assignment shouldn't visually disappear
+  // just because it's since gone inactive.
+  const [{ data: drivers }, { data: trucks }] = await Promise.all([
+    supabase.from("drivers").select("id, full_name, status").order("full_name"),
+    supabase.from("trucks").select("id, plate_number, status").order("plate_number"),
+  ]);
 
   return (
     <>
@@ -57,6 +59,7 @@ export default async function LoadDetailPage({
           load={load}
           driverName={driverName}
           drivers={drivers ?? []}
+          trucks={trucks ?? []}
           companyLogoUrl={logoUrl}
           mileageEnabled={isGoogleMapsConfigured()}
         />
