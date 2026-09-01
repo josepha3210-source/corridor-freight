@@ -2962,3 +2962,88 @@ Committed (`38eddf2`); pushed; Vercel production deployment triggered.
 
 Driver scorecards and POD-triggered invoicing are still open.
 Continuing autonomously into those next.
+
+---
+
+## 97. PHASE 7 — DRIVER SCORECARDS — BUILT AND VERIFIED LIVE (WITH A REAL RSC CLIENT-BOUNDARY BUG CAUGHT AND FIXED)
+
+A new per-driver scorecard rolling up on-time delivery rate, POD/
+signature compliance rate, and DVIR pass rate — plus a manual incident
+log for anything not already captured by an existing table.
+
+### `supabase/migrations/0033_driver_scorecards.sql` (applied live)
+
+- **`driver_incidents`** — the one genuinely new table here: a manual,
+  staff-authored log entry (category, date, description) against a
+  driver. Immutable once created — no update/delete policy at all,
+  same reasoning already applied to every other compliance-flavored
+  record in this app (a DVIR report, a delivery signature): a record
+  that can feed into a pay or performance decision shouldn't be
+  quietly rewritable later. A mistaken entry gets corrected with a
+  follow-up entry, not an edit. `owner`/`dispatcher`/`admin` only, same
+  shape as `maintenance_records`/`dvir_reports`.
+- **`driver_scorecard(p_driver_id)` RPC** — the other two rates are
+  pure aggregation of data this app already keeps, nothing new
+  collected: on-time delivery rate and POD/signature compliance from
+  `dispatches`/`load_stops`, DVIR pass rate from `dvir_reports`. Not
+  `security definer` — runs as the caller, so it sees exactly what a
+  hand-written query using the caller's own RLS would see, no
+  broader. Each rate carries its own sample size and comes back `null`
+  (not `0`) when that sample is empty, so a driver with no delivered
+  loads yet reads as "no data," never a fabricated bad score.
+
+### UI
+
+`app/dashboard/drivers/[id]/page.tsx` — new page: three score tiles
+("No data yet" instead of a percentage when the sample is 0) plus the
+incident log with an inline add form (`AddIncidentForm.tsx`). Linked
+from two places: the drivers list (a driver's name is now a link,
+`DriverRow.tsx`) and the settlement detail view ("View driver
+scorecard →", per the v2 prompt's own "rolled into settlement view"
+framing) — `settlements.driver_id` was already on the table, just not
+previously selected on that page.
+
+### A real bug the verification pass caught
+
+`CATEGORY_LABEL` (the category-value → label map) was originally
+exported from `AddIncidentForm.tsx` — a `"use client"` file — and
+imported into `page.tsx`, a Server Component. `tsc` and `next build`
+both stayed completely clean; it only surfaced live, as a runtime
+crash the moment the scorecard page rendered: `Could not find the
+module ... in the React Client Manifest. This is probably a bug in
+the React Server Components bundler.` The real cause: every export of
+a `"use client"` file is treated as a client-component reference by
+the RSC bundler, not as an arbitrary value — a Server Component can't
+import a plain object out of one, even though nothing about that looks
+wrong to TypeScript. Fixed by moving `CATEGORY_LABEL` into its own
+plain module, `lib/driver-incident-categories.ts`, imported by both
+the client form and the server page. Another entry in the same
+recurring lesson as the `CREATE OR REPLACE VIEW` column-order rule
+(§90/§92) and the dashboard-summary/settlements gap (§91): the build
+passing clean is necessary, not sufficient — only exercising the real
+page live catches this class of bug.
+
+### Verified live
+
+Logged in as the real owner test account. Dana Ruiz's scorecard showed
+100% on-time (1 delivered load with a scheduled dropoff on record) and
+100% POD compliance (2 delivered loads, both signed) — matching her
+real delivery history from §92/§95/§96's own verification passes — and
+DVIR correctly read "No data yet" (0 inspections), not a fabricated
+0%. Logged a real incident through the form (category Safety, a note
+about a hard-braking event) — hit the RSC bug on the very first
+attempt (the page crashed on the post-insert refresh), fixed it, then
+confirmed the same incident rendered correctly on reload, meaning the
+insert itself had actually succeeded even though the client crashed.
+Confirmed the drivers list links to the right scorecard, and the
+settlement detail page's "View driver scorecard →" link points at the
+correct driver.
+
+`npx tsc --noEmit` and `npm run build` both clean (after the fix).
+
+Committed (`88771db`); pushed; Vercel production deployment triggered.
+
+### Remaining Phase 7 differentiators
+
+POD-triggered invoicing is the last one. Continuing autonomously into
+that next.
