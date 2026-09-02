@@ -6,16 +6,7 @@ import {
   SUPPORT_EMAIL,
   DEMO_BOOKING_URL,
 } from "@/lib/site-config";
-
-const PRODUCT_LINKS = [
-  { label: "Dispatch & Loads", href: "/#features" },
-  { label: "Driver Management", href: "/#features" },
-  { label: "Trucks & Equipment", href: "/#features" },
-  { label: "Invoicing & Accounts", href: "/#features" },
-  { label: "IFTA Reporting", href: "/ifta-calculator" },
-  { label: "Maintenance", href: "/#features" },
-  { label: "Document Management", href: "/#features" },
-];
+import { SOLUTIONS } from "@/lib/marketing-solutions";
 
 /**
  * Shared across every public marketing page. Column layout matches the
@@ -62,13 +53,13 @@ export function MarketingFooter() {
               Product
             </h3>
             <ul className="mt-3 space-y-2 text-sm">
-              {PRODUCT_LINKS.map((link) => (
-                <li key={link.label}>
+              {SOLUTIONS.map((item) => (
+                <li key={item.title}>
                   <Link
-                    href={link.href}
+                    href={item.href}
                     className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
                   >
-                    {link.label}
+                    {item.title}
                   </Link>
                 </li>
               ))}

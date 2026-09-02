@@ -44,7 +44,19 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isAuthPage = path.startsWith("/login") || path.startsWith("/signup");
+  // /forgot-password added alongside app/forgot-password/page.tsx —
+  // same public-when-logged-out, bounce-to-/dashboard-when-logged-in
+  // treatment as /login and /signup. /auth/set-password (the page that
+  // actually sets the new password) doesn't need a matching entry here:
+  // it already falls under isAuthCallback below, which is deliberately
+  // NOT part of isAuthPage — a fresh password-reset session lands there
+  // WITH a user set, and folding it into isAuthPage would trip the
+  // "user && isAuthPage → /dashboard" rule and bounce them before they
+  // ever see the form.
+  const isAuthPage =
+    path.startsWith("/login") ||
+    path.startsWith("/signup") ||
+    path.startsWith("/forgot-password");
   const isAuthCallback = path.startsWith("/auth");
   const isPublicAsset = path.startsWith("/_next") || path.startsWith("/favicon");
   // Stripe calls this directly, server-to-server — no session cookie
@@ -65,7 +77,8 @@ export async function updateSession(request: NextRequest) {
   // all; without this, every crawler hit bounced to /login and neither
   // file was ever actually reachable, silently defeating the whole
   // point of adding them.
-  const isPublicMarketingPage = path === "/pricing" || path === "/ifta-calculator";
+  const isPublicMarketingPage =
+    path === "/pricing" || path === "/ifta-calculator" || path === "/quote";
   const isSeoFile = path === "/robots.txt" || path === "/sitemap.xml";
   // Customer tracking links (Phase 7, v2 prompt update) — a shipper
   // opening this has no Corridor account at all; the token in the URL

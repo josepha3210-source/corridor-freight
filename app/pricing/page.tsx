@@ -1,23 +1,14 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { DEMO_BOOKING_URL } from "@/lib/site-config";
+import { PlanCard, type Plan } from "@/components/marketing/PlanCard";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description: "Driver-based pricing for Corridor Freight — Trial, Starter, Growth, and Fleet.",
-};
-
-type Plan = {
-  key: string;
-  name: string;
-  driver_limit: number;
-  monthly_price_cents: number | null;
-  description: string | null;
-  features: string[] | null;
 };
 
 /**
@@ -76,7 +67,7 @@ export default async function PricingPage() {
 
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
           {plans.map((plan) => (
-            <PlanCard key={plan.key} plan={plan} />
+            <PlanCard key={plan.key} plan={plan} highlight={plan.key === "growth"} />
           ))}
         </div>
 
@@ -136,51 +127,6 @@ export default async function PricingPage() {
       </main>
 
       <MarketingFooter />
-    </div>
-  );
-}
-
-function PlanCard({ plan }: { plan: Plan }) {
-  const isFree = plan.monthly_price_cents === 0;
-  const isCustom = plan.key === "custom";
-  const driverLimitLabel =
-    plan.driver_limit >= 9999 ? "Unlimited drivers" : `Up to ${plan.driver_limit} drivers`;
-
-  return (
-    <div
-      className={`flex flex-col rounded-xl border p-6 ${
-        plan.key === "growth"
-          ? "border-brand-500 ring-1 ring-brand-500"
-          : "border-slate-200 dark:border-slate-800"
-      }`}
-    >
-      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{plan.name}</h3>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{driverLimitLabel}</p>
-      {plan.description && (
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-500">{plan.description}</p>
-      )}
-
-      <p className="mt-4 text-2xl font-semibold text-slate-900 dark:text-slate-100">
-        {isFree ? "Free" : "Get a Quote"}
-      </p>
-
-      {isFree ? (
-        <Link
-          href="/signup"
-          className="mt-4 rounded-md bg-brand-600 px-4 py-2 text-center text-sm font-medium text-white transition hover:bg-brand-700"
-        >
-          Start free trial
-        </Link>
-      ) : (
-        <a
-          href={DEMO_BOOKING_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 rounded-md border border-slate-300 px-4 py-2 text-center text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          {isCustom ? "Talk to us" : "Get a Quote"}
-        </a>
-      )}
     </div>
   );
 }

@@ -2,72 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import {
-  Package,
-  Users,
-  Truck,
-  FileText,
-  FileCheck,
-  Wrench,
-  Folder,
-  ChevronDown,
-  type LucideIcon,
-} from "lucide-react";
-
-type SolutionItem = {
-  title: string;
-  description: string;
-  icon: LucideIcon;
-  href: string;
-};
-
-// Corridor's own feature areas (Phase 1's sidebar IA), not a copy of
-// any competitor's list — two columns of icon + title + description,
-// matching the reference layout's shape, not its content.
-const SOLUTIONS: SolutionItem[] = [
-  {
-    title: "Dispatch & Loads",
-    description: "Book, assign, and track every load from pickup to delivery.",
-    icon: Package,
-    href: "/#features",
-  },
-  {
-    title: "Driver Management",
-    description: "A driver portal with its own dashboard, signature capture, and DVIR.",
-    icon: Users,
-    href: "/#features",
-  },
-  {
-    title: "Trucks & Equipment",
-    description: "Registration, insurance, and inspection dates, all in one fleet view.",
-    icon: Truck,
-    href: "/#features",
-  },
-  {
-    title: "Invoicing & Accounts",
-    description: "Bill customers, pay drivers, and export to QuickBooks.",
-    icon: FileText,
-    href: "/#features",
-  },
-  {
-    title: "IFTA Reporting",
-    description: "Quarterly fuel-by-jurisdiction reports, built from real fuel purchase data.",
-    icon: FileCheck,
-    href: "/ifta-calculator",
-  },
-  {
-    title: "Maintenance",
-    description: "Service history per truck and FMCSA-standard driver inspections.",
-    icon: Wrench,
-    href: "/#features",
-  },
-  {
-    title: "Document Management",
-    description: "Licenses, insurance certs, and registrations, with expiration alerts.",
-    icon: Folder,
-    href: "/#features",
-  },
-];
+import { ChevronDown } from "lucide-react";
+import { SOLUTIONS } from "@/lib/marketing-solutions";
 
 export function SolutionsMenu() {
   const [open, setOpen] = useState(false);
