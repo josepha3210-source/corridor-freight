@@ -1,19 +1,37 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Where an invited teammate lands right after clicking their invite
- * email — the magic link only gets them a session, not a password, and
- * without one they'd have no way to log back in later. Reuses the same
- * "next" query param /auth/callback already supports, so no changes were
- * needed there.
+ * Shared by two flows that both boil down to "set a password on a
+ * session that already exists" — an invited teammate's first password,
+ * and an existing user finishing a forgot-password reset
+ * (app/forgot-password/page.tsx). app/auth/callback/route.ts tags the
+ * redirect here with `?flow=recovery` for the latter (see the comment
+ * there) so the copy below can say something that actually matches what
+ * happened — "you're in, set a password" reads wrong for someone who
+ * just reset a password they already had.
+ *
+ * Now reads a search param, so it needs the same <Suspense> wrapper
+ * app/login/page.tsx already carries for the same reason (its own
+ * comment explains why: useSearchParams() otherwise fails static
+ * generation for the page).
  */
 export default function SetPasswordPage() {
+  return (
+    <Suspense>
+      <SetPasswordForm />
+    </Suspense>
+  );
+}
+
+function SetPasswordForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+  const isRecovery = searchParams.get("flow") === "recovery";
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -24,12 +42,12 @@ export default function SetPasswordPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
-        router.replace("/login");
+        router.replace(isRecovery ? "/forgot-password" : "/login");
         return;
       }
       setCheckingSession(false);
     });
-  }, [router, supabase]);
+  }, [router, supabase, isRecovery]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -53,7 +71,9 @@ export default function SetPasswordPage() {
 
     // A driver's invite lands them here same as a dispatcher/admin's
     // does — the only thing that decides where they go next is their
-    // own role, not which kind of invite they claimed.
+    // own role, not which kind of invite they claimed. Same logic
+    // applies to a password reset: send them on to wherever their role
+    // actually works, not a hardcoded /dashboard.
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -75,16 +95,17 @@ export default function SetPasswordPage() {
   return (
     <AuthShell>
       <h1 className="text-xl font-semibold text-slate-900">
-        Set your password
+        {isRecovery ? "Set a new password" : "Set your password"}
       </h1>
       <p className="mt-1 text-sm text-slate-600">
-        You&apos;re in — just set a password so you can log back in next
-        time.
+        {isRecovery
+          ? "Choose a new password for your account."
+          : "You're in — just set a password so you can log back in next time."}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <Field
-          label="Password"
+          label={isRecovery ? "New password" : "Password"}
           id="password"
           type="password"
           value={password}
@@ -115,7 +136,11 @@ export default function SetPasswordPage() {
           disabled={loading}
           className="w-full rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-60"
         >
-          {loading ? "Saving…" : "Set password & continue"}
+          {loading
+            ? "Saving…"
+            : isRecovery
+              ? "Update password"
+              : "Set password & continue"}
         </button>
       </form>
     </AuthShell>

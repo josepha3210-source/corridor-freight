@@ -9,6 +9,8 @@ import { CorridorLogo } from "@/components/CorridorLogo";
 const URL_ERROR_MESSAGES: Record<string, string> = {
   invite_link_invalid:
     "This invite link didn't work — ask whoever invited you to send a new one.",
+  reset_link_invalid:
+    "That password reset link didn't work — request a new one below.",
   auth_callback_failed:
     "That link didn't work — ask whoever sent it to send a new one.",
 };
@@ -17,7 +19,8 @@ const URL_ERROR_MESSAGES: Record<string, string> = {
  * useSearchParams() needs a Suspense boundary around it or the build
  * bails out of static rendering for this page — the actual form (and
  * its use of the ?error= param /auth/callback redirects here with on a
- * failed invite/confirmation link, see §68) lives in LoginForm below.
+ * failed invite/confirmation/reset link, see §68) lives in LoginForm
+ * below.
  */
 export default function LoginPage() {
   return (
@@ -204,12 +207,20 @@ function LoginForm() {
             />
           </div>
           <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-slate-700"
-            >
-              Password
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Password
+              </label>
+              <Link
+                href="/forgot-password"
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <input
               id="password"
               type="password"
