@@ -3322,3 +3322,133 @@ afterward. `npx tsc --noEmit` and `npm run build` both clean.
 
 Committed (`8b2965b`, plus the separate `e386716` forgot-password
 completion); pushed; Vercel production deployment triggered.
+
+## 101. PLATFORM-ADMIN DASHBOARD (`/admin`) — CROSS-TENANT OPERATOR VIEW — BUILT AND VERIFIED
+
+A new concept in the app: a platform-level dashboard for Joseph as the
+operator of Corridor Freight, not a company-level "owner" view. Every
+other authenticated page is scoped to one company via RLS and
+`current_company_id()`; this one deliberately looks across all tenants
+at once — how many companies have signed up, what tier each is on, how
+many drivers each runs, subscription health, and rough revenue.
+
+No schema changes. Everything is derivable from `companies`, `plans`,
+`drivers`, `profiles`, and `loads` as they already exist.
+
+### Access control — the part that had to be right first
+
+- **Not built on `profiles.role`.** `role` ('owner' | 'dispatcher' |
+  'driver' | 'admin') is always per-tenant — an "owner" there owns one
+  company, a different concept from "runs the platform." Bolting
+  platform access onto that column would have been a category error and
+  a new RLS surface on the most sensitive thing in the app.
+- **`ADMIN_EMAILS` env var** (server-only, comma-separated, added to
+  `.env.local` and `.env.local.example`) is the entire gate for v1: one
+  trusted person, no new table. A `platform_admins` table keyed by
+  email or user_id is the natural upgrade if multi-admin is ever
+  needed — deliberately skipped now.
+- **`lib/admin/auth.ts`** — `requirePlatformAdmin()` re-fetches the
+  current user via the normal cookie-scoped client (never the
+  service-role one), checks `user.email` against `ADMIN_EMAILS`
+  (trimmed, case-insensitive), and `redirect("/login")` on any miss —
+  not a 403, so the route's existence is never confirmed to someone who
+  shouldn't see it. Called at the top of every `/admin` page AND in the
+  layout — per-page, so a direct deep link to a sub-page is checked on
+  its own, not just at the layout boundary.
+- **`lib/supabase/admin.ts`** (the pre-existing `createAdminClient()`,
+  service-role, RLS-bypassing) is used only from `lib/admin/queries.ts`,
+  which is imported only by `app/admin/**` server components. Never
+  imported into anything under `app/dashboard` or `app/driver`.
+- **Route is `/admin`** — top-level, sibling to `/dashboard`, NOT nested
+  under it, so it inherits none of the tenant dashboard's layout, nav,
+  or company-scoped data-fetching. Its own minimal `app/admin/layout.tsx`
+  shell (header + Overview/Companies links + log out).
+- Every page is `export const dynamic = "force-dynamic"` — live,
+  per-request, cross-tenant data; must never be statically cached.
+- Not linked from `MarketingHeader`, `MarketingFooter`, the dashboard
+  nav, or `sitemap.ts`. Deliberately NOT added to `robots.ts` either —
+  listing `/admin` there would publicly advertise the path; middleware
+  already redirects any unauthenticated hit to `/login`.
+
+### Pages
+
+- **`/admin` — Overview.** Stat tiles (reusing `app/dashboard`'s
+  tile pattern, not a new style): total companies; active vs. trialing
+  vs. past-due as separate counts; MRR; total active drivers; new
+  companies in the last 7 days and this month. Plan-tier breakdown as a
+  table (Trial / Starter / Growth / Fleet / Custom-Enterprise —
+  company count + active-driver count per tier, pulled from the `plans`
+  catalog so a "0 on Fleet" row still shows). A short "Not in this view
+  (v1)" section spells out the non-goals in the UI itself.
+- **`/admin/companies` — list.** One row per company: name (links to
+  detail), plan, subscription status (colored badge driven by the same
+  `STATUS_LABEL` / `STATUS_CLASSES` maps as Settings → Billing), active
+  drivers vs. the tier's limit ("8 / 10", red when at/over), signup
+  date, owner-role profile name + email as contact. Sortable by driver
+  count and signup date (URL state: `?sort=`/`?dir=`); plan-tier filter
+  tabs (`?plan=`). All sorting/filtering is in-memory — the tenant list
+  is small enough that server-side ORDER BY or paging would be
+  premature.
+- **`/admin/companies/[id]` — detail.** Full plan/subscription detail
+  (incl. Stripe customer/subscription ids, past-due-since), driver
+  roster (name + active/inactive), loads created in the last 30 days +
+  all-time as the best available "are they actually using this" proxy
+  (there's no events/analytics table), and owner contact. Read-only —
+  invalid id 404s via `notFound()`.
+
+### The MRR caveat — stated in the UI, not hidden
+
+MRR = sum of `plans.monthly_price_cents` for companies whose
+`subscription_status = 'active'`, joined through `plan_id`. The
+"Custom / Enterprise" tier has `monthly_price_cents = null` (quote-based,
+not in Stripe yet), so an active company on that plan can't be priced.
+Those are **excluded** from the MRR figure and the count of what's
+excluded is shown right under it — the number is never a silent
+undercount. Right now no active company is on a quote-based plan, so the
+UI says exactly that.
+
+### Explicit v1 non-goals (called out, not built)
+
+- No editing any company's data from `/admin`.
+- No "log in as this company" / impersonation — has its own
+  consent/security design questions, doesn't belong in the first cut.
+- No historical MRR trend. The schema stores only the current
+  `subscription_status` — no snapshot table — so a trend line would need
+  a nightly-snapshot table + cron, or Stripe's own historical data via
+  their API. Deliberately deferred to v2 rather than faked from data
+  that doesn't exist.
+- No fabricated numbers anywhere — a metric that can't be computed from
+  real data is shown honestly (the MRR exclusion note) rather than
+  guessed.
+
+### New / changed files
+
+- `lib/admin/auth.ts` (new) — `parseAdminEmails`, `isAdminEmail`,
+  `requirePlatformAdmin`.
+- `lib/admin/queries.ts` (new) — `getAdminOverview`, `getAdminCompanies`,
+  `getPlanCatalog`, `getAdminCompanyDetail`, all service-role.
+- `app/admin/layout.tsx`, `app/admin/page.tsx`,
+  `app/admin/companies/page.tsx`,
+  `app/admin/companies/[id]/page.tsx` (new).
+- `app/admin/_components/ui.tsx` (new) — `StatTile`, `SubscriptionBadge`,
+  `Card`; underscore-prefixed folder so it's not a route.
+- `.env.local` / `.env.local.example` — `ADMIN_EMAILS` documented.
+
+### Verified
+
+`npx tsc --noEmit` clean; `npm run build` clean — all three `/admin`
+routes compile as `ƒ (Dynamic)` (server-rendered on demand), never
+prerendered. Access control checked live in the browser against the real
+Supabase project: an unauthenticated hit on `/admin` redirects to
+`/login`; a logged-in non-admin (a dispatcher) hitting `/admin` lands on
+their own `/dashboard` with no hint the route exists (the redirect chain
+is `/admin` → `/login` → middleware → `/dashboard`). Then, via a
+throwaway admin user added to `ADMIN_EMAILS` for the test and deleted
+afterward (along with the "My Company" row its signup trigger created),
+loaded all three pages against real tenant data: overview counts, the
+plan-tier table, the companies list with driver-limit and owner-contact
+columns, sort by driver count, the plan filter, and a company
+drill-in all rendered correctly. `ADMIN_EMAILS` reverted to just
+Joseph's address (`velorispro@gmail.com`) — confirm/adjust that value
+for the real operator account, and set it in the Vercel project env
+before this is deployed. Not yet committed.
