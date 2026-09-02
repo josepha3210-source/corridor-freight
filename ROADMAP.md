@@ -3210,3 +3210,115 @@ invoicing (§99) — all five differentiators from the v2 prompt's Phase
 (§77–93) from earlier this session, the full v2 transformation prompt
 is complete. Continuing autonomously to look for the next real thing
 worth doing, per the standing instruction.
+
+---
+
+## 100. FULL MARKETING HOMEPAGE TRANSFORMATION + QUALIFIED QUOTE-REQUEST FLOW
+
+Asked for directly: the public homepage was a bare hero, a 4-item
+feature strip, and a text link out to `/pricing` — compared side by
+side against a reference competitor site and asked to bring it up to
+that level, using Corridor's own real content and brand, not a copy of
+the reference's.
+
+### `app/page.tsx`, rewritten
+
+- **Two-column hero** — headline/subhead/dual CTA (Start free trial /
+  Book a demo) plus an illustrative dashboard-preview panel on the
+  right, built from the real dashboard's own stat tiles (Loads in
+  progress, Revenue MTD, On-time delivery, Fleet utilization) and
+  explicitly captioned "Sample data — your dashboard, your numbers."
+  Deliberately not a screenshot and not implying a real customer's
+  numbers — there are no real customers yet, and fabricating that
+  would be exactly the dishonesty this whole build has avoided
+  everywhere else (labeled-example IFTA rates, the HVUT stub). No
+  fake logos, review scores, or usage-count claims anywhere on the
+  page, for the same reason.
+- **Reassurance strip** — 3-day free trial (card required — checked
+  against the real Stripe checkout code, not just asserted), driver-
+  based pricing, no setup fees (checked: no such fee exists anywhere
+  in the checkout flow).
+- **"What's new" ribbon** — names real, already-shipped features only
+  (customer tracking, lane profitability, driver scorecards).
+- **Solutions grid** — the real 7-item Solutions list as a proper icon
+  grid instead of 4 bare feature blurbs.
+- **Real pricing section** — all 5 actual tiers (Trial/Starter/Growth/
+  Fleet/Custom) pulled live from the same `plans` table `/pricing`
+  reads, not a static teaser. "3-day trial, then a tier, or talk to us
+  about something custom" was already true — Trial and the Custom/
+  Enterprise tier both already existed in `plans` — just never shown
+  on the homepage itself before now.
+
+### DRY cleanup this surfaced
+
+The Solutions list was hand-duplicated in three places (the Solutions
+mega-menu, the footer's Product column, and now the homepage) —
+pulled into one shared module, `lib/marketing-solutions.ts`,
+deliberately a plain (not `"use client"`) file so both a Server
+Component (the homepage) and a Client Component (`SolutionsMenu`) can
+import it safely. This is the `CATEGORY_LABEL` lesson from driver
+scorecards (§97) applied up front this time, not hit again.
+`components/marketing/PlanCard.tsx` was pulled out of `/pricing`'s
+inline function the same way, so the homepage's pricing section and
+`/pricing` itself can't drift into different copy for the same plan.
+
+### Qualified quote-request flow
+
+The v2 prompt's own instruction: "when people want to sign up or get a
+quote, they have to answer some questions." Signup already had this
+(the onboarding survey, §91) — "Get a Quote" didn't; every paid tier's
+button linked straight to Cal.com with zero context attached.
+
+- `supabase/migrations/0035_quote_requests.sql` (applied live) —
+  `quote_requests` table, anon insert-only, same shape as
+  `ifta_calculator_leads` (0030): a lead written once, reviewed
+  directly via database access, never read back by the client.
+- `components/marketing/QuoteRequestForm.tsx` — company name, email,
+  phone, fleet size (same vocabulary as the signup survey's
+  `fleet_size`, 0025 — a prospect's answer and a new signup's answer
+  are directly comparable later), current tool, optional notes — then
+  reveals the real Cal.com booking link. Insert is best-effort: a
+  failed write never blocks the visitor from still booking a call,
+  same reasoning as the IFTA Calculator's own lead capture.
+- `app/quote/page.tsx` — new public page; `?plan=` is display-only
+  context (which plan card the visitor clicked from), not a gate —
+  the page works fine reached directly with no plan context at all.
+- Every paid tier's CTA, on both `/pricing` and the homepage, now
+  routes through `/quote?plan=<key>` instead of Cal.com directly.
+- `lib/supabase/middleware.ts` — `/quote` added to the public-
+  marketing-page exemption alongside `/pricing`/`/ifta-calculator`
+  (the same logged-out-visitor gap those two needed fixed, §93).
+
+### A separate, unrelated finding along the way
+
+Staging this work's files turned up two files with real, uncommitted
+changes from an earlier session that had nothing to do with this
+task: `app/login/page.tsx` and `app/auth/set-password/page.tsx`
+completing a forgot-password flow whose other half (`/forgot-password`
+itself, and `/auth/callback`'s `?flow=recovery` tagging) was already
+committed. Verified it was genuinely finished, working code (it had
+been compiling cleanly as part of every build since, just never
+committed) and checked live — `/login` now shows "Forgot password?",
+linking to a working `/forgot-password` page. Committed separately
+(`e386716`), not folded into the marketing-site commit, keeping the
+one-feature-per-commit discipline this whole build has used
+throughout. Real reset emails still need the one manual Supabase
+dashboard step already documented in that page's own comment and §69
+(the "Reset Password" email template) — not something a commit can
+do, same limitation invite links already had.
+
+### Verified live
+
+Logged all the way out and loaded the real homepage: hero, sample-data
+dashboard preview, "What's new" ribbon, the real 7-item Solutions
+grid, and all 5 real plan tiers all rendered correctly. Confirmed
+`/pricing`'s "Get a Quote"/"Talk to us" buttons now link to
+`/quote?plan=<key>`. Submitted the `/quote` form end-to-end for the
+Growth plan and confirmed the row landed correctly in
+`quote_requests` (company name, email, fleet size, current tool, and
+plan interest all matched what was entered), then confirmed the
+booking-link reveal state rendered correctly; deleted the test row
+afterward. `npx tsc --noEmit` and `npm run build` both clean.
+
+Committed (`8b2965b`, plus the separate `e386716` forgot-password
+completion); pushed; Vercel production deployment triggered.
